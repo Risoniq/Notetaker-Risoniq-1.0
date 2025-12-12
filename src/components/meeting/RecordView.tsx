@@ -1,5 +1,10 @@
 import { Mic, Square, Radio, Lightbulb } from 'lucide-react';
 import { CaptureMode } from '@/types/meeting';
+import { AudioDevices } from '@/hooks/useAudioDevices';
+import { MicrophoneTest } from '@/hooks/useMicrophoneTest';
+import { AudioDeviceSelector } from './AudioDeviceSelector';
+import { MicrophoneTestButton } from './MicrophoneTestButton';
+import { AudioLevelIndicator } from './AudioLevelIndicator';
 
 interface RecordViewProps {
   meetingTitle: string;
@@ -10,6 +15,9 @@ interface RecordViewProps {
   currentTranscript: string;
   onStartRecording: () => void;
   onStopRecording: () => void;
+  audioDevices: AudioDevices;
+  microphoneTest: MicrophoneTest;
+  audioLevel: number;
 }
 
 export const RecordView = ({
@@ -21,11 +29,31 @@ export const RecordView = ({
   currentTranscript,
   onStartRecording,
   onStopRecording,
+  audioDevices,
+  microphoneTest,
+  audioLevel,
 }: RecordViewProps) => {
   return (
     <div className="bg-card rounded-2xl shadow-lg border border-border p-6 sm:p-8 animate-fade-in">
       <h2 className="text-xl sm:text-2xl font-bold mb-6 text-foreground">Meeting transkribieren</h2>
       
+      {/* Audio Device Selection */}
+      {!isRecording && (
+        <div className="bg-muted/30 border border-border rounded-xl p-5 sm:p-6 mb-6">
+          <AudioDeviceSelector 
+            devices={audioDevices}
+            disabled={isRecording}
+          />
+          <div className="mt-4 pt-4 border-t border-border">
+            <MicrophoneTestButton 
+              test={microphoneTest}
+              selectedMicId={audioDevices.selectedMicId}
+              disabled={isRecording}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Capture Mode Selection */}
       <div className="bg-primary/5 border border-primary/20 rounded-xl p-5 sm:p-6 mb-6">
         <h3 className="font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -110,11 +138,14 @@ export const RecordView = ({
       {/* Recording Status */}
       {isRecording && (
         <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-5 sm:p-6 animate-scale-in">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-3 h-3 bg-destructive rounded-full animate-pulse-recording"></div>
-            <span className="text-destructive font-semibold">
-              🎤 Aufnahme läuft... ({captureMode === 'tab' ? 'Tab Audio' : 'Mikrofon'})
-            </span>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 bg-destructive rounded-full animate-pulse-recording"></div>
+              <span className="text-destructive font-semibold">
+                🎤 Aufnahme läuft... ({captureMode === 'tab' ? 'Tab Audio' : 'Mikrofon'})
+              </span>
+            </div>
+            <AudioLevelIndicator level={audioLevel} className="w-24" />
           </div>
           <div className="bg-background rounded-xl p-4 max-h-64 overflow-y-auto border border-border">
             <p className="text-foreground whitespace-pre-wrap text-sm sm:text-base leading-relaxed">
