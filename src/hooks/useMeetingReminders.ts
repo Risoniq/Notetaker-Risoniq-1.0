@@ -142,8 +142,8 @@ export const useMeetingReminders = (
         const endTime = new Date(event.end).getTime();
         const minutesSinceStart = (now - startTime) / (1000 * 60);
 
-        // Meeting has started (within first 5 minutes after start) and hasn't ended
-        if (minutesSinceStart >= 0 && minutesSinceStart <= 5 && now < endTime) {
+        // Meeting starts within 1 minute OR has started (within first 10 minutes) and hasn't ended
+        if (minutesSinceStart >= -1 && minutesSinceStart <= 10 && now < endTime) {
           showMeetingStartNotification(event);
         }
       });
