@@ -274,8 +274,8 @@ export default function MeetingNoteTaker() {
   };
 
   const filteredMeetings = meetings.filter(m =>
-    m.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    m.transcript.toLowerCase().includes(searchTerm.toLowerCase())
+    (m.title?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (m.transcript?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
   return (
