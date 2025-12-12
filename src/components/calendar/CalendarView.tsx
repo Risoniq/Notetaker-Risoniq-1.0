@@ -1,5 +1,6 @@
 import { useGoogleCalendar } from '@/hooks/useGoogleCalendar';
 import { useMeetingReminders } from '@/hooks/useMeetingReminders';
+import { useMeetingBotWebhook } from '@/hooks/useMeetingBotWebhook';
 import { CalendarConnection } from './CalendarConnection';
 import { UpcomingMeetings } from './UpcomingMeetings';
 import { ReminderSettings } from './ReminderSettings';
@@ -22,11 +23,23 @@ export const CalendarView = ({ onStartRecording }: CalendarViewProps) => {
     updateReminderSettings,
   } = useGoogleCalendar();
 
+  const { triggerBotWebhook } = useMeetingBotWebhook();
+
+  const handleMeetingStart = (event: CalendarEvent) => {
+    // Trigger webhook to notify bot service
+    triggerBotWebhook(event);
+    
+    // Also call optional recording callback
+    if (onStartRecording) {
+      onStartRecording(event);
+    }
+  };
+
   const {
     requestNotificationPermission,
     notificationSupported,
     notificationPermission,
-  } = useMeetingReminders(events, reminderSettings, onStartRecording);
+  } = useMeetingReminders(events, reminderSettings, handleMeetingStart);
 
   return (
     <div className="space-y-6">
