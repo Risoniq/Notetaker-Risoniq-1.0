@@ -99,22 +99,54 @@ export const useGoogleCalendar = () => {
   };
 
   const connect = async () => {
+    // Open popup SYNCHRONOUSLY on user click to avoid popup blocker
+    const width = 500;
+    const height = 600;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      'about:blank',
+      'google-auth',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+
+    if (!popup) {
+      setStatus('error');
+      setError('Popup wurde blockiert. Bitte erlaube Popups für diese Seite.');
+      return;
+    }
+
+    // Show loading message in popup
+    popup.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Google Kalender verbinden</title>
+          <style>
+            body { font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f5f5f5; }
+            .loader { text-align: center; }
+            .spinner { width: 40px; height: 40px; border: 3px solid #e0e0e0; border-top-color: #4285f4; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 16px; }
+            @keyframes spin { to { transform: rotate(360deg); } }
+          </style>
+        </head>
+        <body>
+          <div class="loader">
+            <div class="spinner"></div>
+            <p>Verbindung wird hergestellt...</p>
+          </div>
+        </body>
+      </html>
+    `);
+
     try {
       setStatus('connecting');
       setError(null);
+      
       const authUrl = await getAuthUrl();
       
-      // Open OAuth popup
-      const width = 500;
-      const height = 600;
-      const left = window.screenX + (window.outerWidth - width) / 2;
-      const top = window.screenY + (window.outerHeight - height) / 2;
-      
-      const popup = window.open(
-        authUrl,
-        'google-auth',
-        `width=${width},height=${height},left=${left},top=${top}`
-      );
+      // Navigate popup to auth URL
+      popup.location.href = authUrl;
 
       // Listen for the callback
       const handleMessage = async (event: MessageEvent) => {
@@ -171,7 +203,8 @@ export const useGoogleCalendar = () => {
       }, 1000);
 
     } catch (e: any) {
-      console.error('Failed to start auth:', e);
+      console.error('Failed to get auth URL:', e);
+      popup.close();
       setStatus('error');
       setError(e.message || 'Verbindung fehlgeschlagen');
     }
