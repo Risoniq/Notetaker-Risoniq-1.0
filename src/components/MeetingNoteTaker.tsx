@@ -11,6 +11,7 @@ import { SearchBar } from './meeting/SearchBar';
 import { MeetingCard } from './meeting/MeetingCard';
 import { EmptyState } from './meeting/EmptyState';
 import { MeetingDetailModal } from './meeting/MeetingDetailModal';
+import { DownloadModal } from './meeting/DownloadModal';
 import { useToast } from '@/hooks/use-toast';
 
 export default function MeetingNoteTaker() {
@@ -23,9 +24,11 @@ export default function MeetingNoteTaker() {
   const [captureMode, setCaptureMode] = useState<CaptureMode>('tab');
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [error, setError] = useState('');
+  const [downloadModalMeeting, setDownloadModalMeeting] = useState<Meeting | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   
   const { toast } = useToast();
   const { meetings, loadMeetings, saveMeeting, deleteMeeting } = useMeetingStorage();
@@ -63,6 +66,7 @@ export default function MeetingNoteTaker() {
     setIsRecording(true);
     setCurrentTranscript('');
     setRecordingStartTime(Date.now());
+    audioChunksRef.current = [];
 
     try {
       let stream: MediaStream;
@@ -79,9 +83,7 @@ export default function MeetingNoteTaker() {
 
         stream.getAudioTracks()[0].onended = () => {
           console.log('Audio stream ended');
-          if (isRecording) {
-            stopRecording();
-          }
+          stopRecording();
         };
       } else {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -95,11 +97,26 @@ export default function MeetingNoteTaker() {
 
       streamRef.current = stream;
 
-      mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: 'audio/webm'
-      });
+      // Try to use mp3 if available, otherwise webm
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp3') 
+        ? 'audio/mp3' 
+        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm';
       
-      mediaRecorderRef.current.start();
+      console.log('Using audio mimeType:', mimeType);
+
+      mediaRecorderRef.current = new MediaRecorder(stream, { mimeType });
+      
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+          console.log('Audio chunk received:', event.data.size, 'bytes');
+        }
+      };
+
+      // Request data every second
+      mediaRecorderRef.current.start(1000);
       startRecognition();
 
       toast({
@@ -116,47 +133,76 @@ export default function MeetingNoteTaker() {
   };
 
   const stopRecording = useCallback(async () => {
+    if (!isRecording) return;
+    
     setIsRecording(false);
     
     const duration = recordingStartTime ? Math.floor((Date.now() - recordingStartTime) / 1000) : 0;
+    const title = meetingTitle;
+    const transcript = currentTranscript;
+    const mode = captureMode;
 
     stopRecognition();
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    }
+    // Create a promise to wait for final audio data
+    const audioPromise = new Promise<Blob>((resolve) => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.onstop = () => {
+          const mimeType = mediaRecorderRef.current?.mimeType || 'audio/webm';
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          console.log('Final audio blob created:', audioBlob.size, 'bytes, type:', mimeType);
+          resolve(audioBlob);
+        };
+        mediaRecorderRef.current.stop();
+      } else {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        resolve(audioBlob);
+      }
+    });
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
 
-    const meeting: Meeting = {
-      id: Date.now().toString(),
-      title: meetingTitle,
-      date: new Date().toISOString(),
-      transcript: currentTranscript || 'Keine Transkription verfügbar',
-      analysis: generateAnalysis(currentTranscript),
-      captureMode: captureMode,
-      duration: duration
-    };
-
     try {
+      const audioBlob = await audioPromise;
+      const audioUrl = URL.createObjectURL(audioBlob);
+
+      const meeting: Meeting = {
+        id: Date.now().toString(),
+        title: title,
+        date: new Date().toISOString(),
+        transcript: transcript || 'Keine Transkription verfügbar',
+        analysis: generateAnalysis(transcript),
+        captureMode: mode,
+        duration: duration,
+        audioBlob: audioBlob,
+        audioUrl: audioUrl,
+      };
+
+      // Show download modal
+      setDownloadModalMeeting(meeting);
+      
       await saveMeeting(meeting);
       setMeetingTitle('');
       setCurrentTranscript('');
       setRecordingStartTime(null);
-      setActiveView('dashboard');
       
       toast({
-        title: "Meeting gespeichert",
-        description: `"${meeting.title}" wurde erfolgreich gespeichert`,
+        title: "Aufnahme beendet",
+        description: "Audio und Transkript stehen zum Download bereit",
       });
     } catch (err) {
       console.error('Fehler beim Speichern:', err);
       setError('Meeting konnte nicht gespeichert werden.');
     }
-  }, [recordingStartTime, meetingTitle, currentTranscript, captureMode, saveMeeting, stopRecognition, toast]);
+  }, [isRecording, recordingStartTime, meetingTitle, currentTranscript, captureMode, saveMeeting, stopRecognition, toast]);
+
+  const handleCloseDownloadModal = () => {
+    setDownloadModalMeeting(null);
+    setActiveView('dashboard');
+  };
 
   const handleDeleteMeeting = async (id: string) => {
     if (window.confirm('Meeting wirklich löschen?')) {
@@ -237,6 +283,13 @@ export default function MeetingNoteTaker() {
             meeting={selectedMeeting}
             onClose={() => setSelectedMeeting(null)}
             onDownload={handleDownloadTranscript}
+          />
+        )}
+
+        {downloadModalMeeting && (
+          <DownloadModal
+            meeting={downloadModalMeeting}
+            onClose={handleCloseDownloadModal}
           />
         )}
       </div>
