@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Meeting, CaptureMode, ViewType } from '@/types/meeting';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useMeetingStorage } from '@/hooks/useMeetingStorage';
+import { useAudioDevices } from '@/hooks/useAudioDevices';
+import { useAudioLevel } from '@/hooks/useAudioLevel';
+import { useMicrophoneTest } from '@/hooks/useMicrophoneTest';
 import { generateAnalysis, downloadTranscript } from '@/utils/meetingAnalysis';
 import { Header } from './meeting/Header';
 import { ErrorAlert } from './meeting/ErrorAlert';
@@ -25,6 +28,7 @@ export default function MeetingNoteTaker() {
   const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [downloadModalMeeting, setDownloadModalMeeting] = useState<Meeting | null>(null);
+  const [currentStream, setCurrentStream] = useState<MediaStream | null>(null);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -33,6 +37,9 @@ export default function MeetingNoteTaker() {
   const { toast } = useToast();
   const { meetings, loadMeetings, saveMeeting, deleteMeeting } = useMeetingStorage();
   const { startRecognition, stopRecognition, setOnResult, error: recognitionError } = useSpeechRecognition();
+  const audioDevices = useAudioDevices();
+  const microphoneTest = useMicrophoneTest();
+  const audioLevel = useAudioLevel(currentStream);
 
   useEffect(() => {
     loadMeetings();
@@ -60,6 +67,11 @@ export default function MeetingNoteTaker() {
     if (!meetingTitle.trim()) {
       setError('Bitte gib einen Meeting-Titel ein');
       return;
+    }
+
+    // Stop any running microphone test
+    if (microphoneTest.status === 'testing') {
+      microphoneTest.stopTest();
     }
 
     setError('');
@@ -96,14 +108,14 @@ export default function MeetingNoteTaker() {
           stopRecording();
         };
       } else {
-        // Mikrofon-Modus: System-Standard-Mikrofon verwenden
+        // Mikrofon-Modus: Ausgewähltes Mikrofon verwenden
+        const deviceId = audioDevices.selectedMicId;
         stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
-            // Explizit das Standard-Mikrofon anfordern
-            deviceId: 'default'
+            deviceId: deviceId !== 'default' ? { exact: deviceId } : undefined
           }
         });
 
@@ -121,6 +133,7 @@ export default function MeetingNoteTaker() {
       }
 
       streamRef.current = stream;
+      setCurrentStream(stream);
 
       // Try to use mp3 if available, otherwise webm
       const mimeType = MediaRecorder.isTypeSupported('audio/mp3') 
@@ -157,6 +170,7 @@ export default function MeetingNoteTaker() {
       setError(`Aufnahme konnte nicht gestartet werden: ${err.message}`);
       setIsRecording(false);
       setRecordingStartTime(null);
+      setCurrentStream(null);
     }
   };
 
@@ -164,6 +178,7 @@ export default function MeetingNoteTaker() {
     if (!isRecording) return;
     
     setIsRecording(false);
+    setCurrentStream(null);
     
     const duration = recordingStartTime ? Math.floor((Date.now() - recordingStartTime) / 1000) : 0;
     const title = meetingTitle;
@@ -281,6 +296,9 @@ export default function MeetingNoteTaker() {
             currentTranscript={currentTranscript}
             onStartRecording={startRecording}
             onStopRecording={stopRecording}
+            audioDevices={audioDevices}
+            microphoneTest={microphoneTest}
+            audioLevel={audioLevel}
           />
         )}
 
