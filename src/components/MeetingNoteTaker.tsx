@@ -73,15 +73,25 @@ export default function MeetingNoteTaker() {
 
       if (captureMode === 'tab') {
         stream = await navigator.mediaDevices.getDisplayMedia({
-          video: false,
+          video: true, // Browser erfordert video: true
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true
           }
-        } as any);
+        });
 
-        stream.getAudioTracks()[0].onended = () => {
+        // Video-Track sofort stoppen (wir brauchen nur Audio)
+        stream.getVideoTracks().forEach(track => track.stop());
+
+        // Prüfen ob Audio-Track vorhanden
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length === 0) {
+          stream.getTracks().forEach(track => track.stop());
+          throw new Error('Kein Audio gefunden. Bitte aktiviere "Tab-Audio teilen" im Dialog oder nutze den Mikrofon-Modus.');
+        }
+
+        audioTracks[0].onended = () => {
           console.log('Audio stream ended');
           stopRecording();
         };
