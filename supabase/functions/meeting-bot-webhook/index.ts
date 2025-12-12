@@ -2,7 +2,7 @@
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-webhook-timestamp, x-webhook-signature',
 };
 
 interface MeetingWebhookPayload {
@@ -13,6 +13,43 @@ interface MeetingWebhookPayload {
   end_time: string;
   attendees: Array<{ email: string; displayName?: string }>;
   triggered_at: string;
+}
+
+// HMAC-SHA256 signature verification
+async function verifySignature(payload: string, signature: string, timestamp: string): Promise<boolean> {
+  const secret = Deno.env.get('WEBHOOK_SIGNING_SECRET');
+  if (!secret) {
+    console.error('WEBHOOK_SIGNING_SECRET not configured');
+    return false;
+  }
+
+  // Check timestamp is within 5 minutes to prevent replay attacks
+  const timestampMs = parseInt(timestamp, 10);
+  const now = Date.now();
+  const fiveMinutes = 5 * 60 * 1000;
+  
+  if (isNaN(timestampMs) || Math.abs(now - timestampMs) > fiveMinutes) {
+    console.error('Timestamp validation failed - request too old or invalid');
+    return false;
+  }
+
+  // Create HMAC signature
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signatureData = `${timestamp}.${payload}`;
+  const signatureBytes = await crypto.subtle.sign('HMAC', key, encoder.encode(signatureData));
+  const expectedSignature = Array.from(new Uint8Array(signatureBytes))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+
+  return signature === expectedSignature;
 }
 
 Deno.serve(async (req) => {
@@ -29,7 +66,26 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const payload: MeetingWebhookPayload = await req.json();
+    const timestamp = req.headers.get('x-webhook-timestamp');
+    const signature = req.headers.get('x-webhook-signature');
+    const body = await req.text();
+
+    // Verify signature if headers are present
+    if (timestamp && signature) {
+      const isValid = await verifySignature(body, signature, timestamp);
+      if (!isValid) {
+        console.error('Invalid webhook signature');
+        return new Response(
+          JSON.stringify({ error: 'Invalid signature' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      console.log('✅ Webhook signature verified successfully');
+    } else {
+      console.warn('⚠️ No signature headers present - accepting unsigned request');
+    }
+
+    const payload: MeetingWebhookPayload = JSON.parse(body);
 
     // Validate required fields
     if (!payload.meeting_id || !payload.title || !payload.start_time) {
@@ -49,14 +105,6 @@ Deno.serve(async (req) => {
     console.log('Attendees:', JSON.stringify(payload.attendees));
     console.log('Triggered At:', payload.triggered_at);
     console.log('=====================================');
-
-    // TODO: Here you would forward to external bot service (Recall.ai, Skribby, etc.)
-    // Example:
-    // const botResponse = await fetch('https://api.recall.ai/v1/bot', {
-    //   method: 'POST',
-    //   headers: { 'Authorization': `Bearer ${Deno.env.get('RECALL_API_KEY')}` },
-    //   body: JSON.stringify({ meeting_url: payload.meeting_url })
-    // });
 
     return new Response(
       JSON.stringify({ 
