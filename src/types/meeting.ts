@@ -13,6 +13,8 @@ export interface Meeting {
   analysis: MeetingAnalysis;
   captureMode: 'tab' | 'mic';
   duration: number;
+  audioBlob?: Blob;
+  audioUrl?: string;
 }
 
 export type CaptureMode = 'tab' | 'mic';
