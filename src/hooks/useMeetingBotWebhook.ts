@@ -20,6 +20,13 @@ async function generateSignature(payload: string, timestamp: string, secret: str
     .join('');
 }
 
+// Extract URL from text using regex
+function extractUrl(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const urlMatch = text.match(/(https?:\/\/[^\s]+)/);
+  return urlMatch ? urlMatch[0] : null;
+}
+
 // Get signing secret from environment
 const WEBHOOK_SIGNING_SECRET = import.meta.env.VITE_WEBHOOK_SIGNING_SECRET || '';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -38,7 +45,12 @@ export const useMeetingBotWebhook = () => {
 
     triggeredWebhooks.current.add(event.id);
 
-    const meetingUrl = event.meetingUrl || event.hangoutLink || null;
+    // Priority: meetingUrl → hangoutLink → location → description
+    const meetingUrl = event.meetingUrl 
+      || event.hangoutLink 
+      || extractUrl(event.location) 
+      || extractUrl(event.description) 
+      || null;
 
     const payload = {
       meeting_id: event.id,
