@@ -37,6 +37,14 @@ export const CalendarView = ({ onStartRecording }: CalendarViewProps) => {
     }
   };
 
+  const handleJoinMeeting = (event: CalendarEvent, meetingUrl: string) => {
+    // Trigger webhook with all meeting info
+    triggerBotWebhook(event);
+    
+    // Open the meeting link
+    window.open(meetingUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const handleTestWebhook = async () => {
     const testEvent: CalendarEvent = {
       id: 'test-' + Date.now(),
@@ -101,6 +109,7 @@ export const CalendarView = ({ onStartRecording }: CalendarViewProps) => {
               events={events}
               isLoading={isLoading}
               onStartRecording={onStartRecording}
+              onJoinMeeting={handleJoinMeeting}
             />
           </div>
         </>
