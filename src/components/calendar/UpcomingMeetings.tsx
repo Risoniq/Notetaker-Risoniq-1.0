@@ -8,9 +8,10 @@ interface UpcomingMeetingsProps {
   events: CalendarEvent[];
   isLoading: boolean;
   onStartRecording?: (event: CalendarEvent) => void;
+  onJoinMeeting?: (event: CalendarEvent, meetingUrl: string) => void;
 }
 
-export const UpcomingMeetings = ({ events, isLoading, onStartRecording }: UpcomingMeetingsProps) => {
+export const UpcomingMeetings = ({ events, isLoading, onStartRecording, onJoinMeeting }: UpcomingMeetingsProps) => {
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -149,12 +150,16 @@ export const UpcomingMeetings = ({ events, isLoading, onStartRecording }: Upcomi
                           variant={happeningSoon || happeningNow ? 'default' : 'outline'}
                           size="sm"
                           className={happeningSoon || happeningNow ? 'gradient-hero' : ''}
-                          asChild
+                          onClick={() => {
+                            if (onJoinMeeting) {
+                              onJoinMeeting(event, meetingLink);
+                            } else {
+                              window.open(meetingLink, '_blank', 'noopener,noreferrer');
+                            }
+                          }}
                         >
-                          <a href={meetingLink} target="_blank" rel="noopener noreferrer">
-                            <Video size={14} className="mr-1" />
-                            Beitreten
-                          </a>
+                          <Video size={14} className="mr-1" />
+                          Beitreten
                         </Button>
                       )}
                       {onStartRecording && (
