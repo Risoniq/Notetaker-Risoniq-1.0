@@ -48,18 +48,20 @@ export const MeetingDetailModal = ({ meeting, onClose, onDownload }: MeetingDeta
 
         <div className="p-5 sm:p-6 space-y-6">
           {/* Summary */}
-          <div className="animate-slide-up" style={{ animationDelay: '0.1s' }}>
-            <h3 className="text-lg font-bold mb-3 text-primary flex items-center gap-2">
-              <FileText size={20} />
-              Zusammenfassung
-            </h3>
-            <p className="text-foreground bg-primary/5 p-4 rounded-xl leading-relaxed border border-primary/10">
-              {meeting.analysis.summary}
-            </p>
-          </div>
+          {meeting.analysis?.summary && (
+            <div className="animate-slide-up" style={{ animationDelay: '0.1s' }}>
+              <h3 className="text-lg font-bold mb-3 text-primary flex items-center gap-2">
+                <FileText size={20} />
+                Zusammenfassung
+              </h3>
+              <p className="text-foreground bg-primary/5 p-4 rounded-xl leading-relaxed border border-primary/10">
+                {meeting.analysis.summary}
+              </p>
+            </div>
+          )}
 
           {/* Key Points */}
-          {meeting.analysis.keyPoints?.length > 0 && (
+          {meeting.analysis?.keyPoints?.length > 0 && (
             <div className="animate-slide-up" style={{ animationDelay: '0.2s' }}>
               <h3 className="text-lg font-bold mb-3 text-accent flex items-center gap-2">
                 <Target size={20} />
@@ -77,7 +79,7 @@ export const MeetingDetailModal = ({ meeting, onClose, onDownload }: MeetingDeta
           )}
 
           {/* Action Items */}
-          {meeting.analysis.actionItems?.length > 0 && (
+          {meeting.analysis?.actionItems?.length > 0 && (
             <div className="animate-slide-up" style={{ animationDelay: '0.3s' }}>
               <h3 className="text-lg font-bold mb-3 text-success flex items-center gap-2">
                 <CheckCircle size={20} />
