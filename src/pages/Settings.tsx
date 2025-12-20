@@ -251,12 +251,26 @@ const Settings = () => {
                   <Label>Bot-Name</Label>
                   <p className="text-sm text-muted-foreground">Der Name, der im Meeting angezeigt wird</p>
                 </div>
-                <Input 
-                  className="w-48" 
-                  value={botName} 
-                  onChange={handleBotNameChange}
-                  placeholder="Notetaker Bot"
-                />
+                <div className="flex items-center gap-2">
+                  <Input 
+                    className="w-48" 
+                    value={botName} 
+                    onChange={(e) => setBotName(e.target.value)}
+                    placeholder="Notetaker Bot"
+                  />
+                  <Button 
+                    size="sm" 
+                    onClick={() => {
+                      localStorage.setItem('bot:name', botName);
+                      toast({
+                        title: "Gespeichert",
+                        description: "Bot-Name wurde gespeichert.",
+                      });
+                    }}
+                  >
+                    Speichern
+                  </Button>
+                </div>
               </div>
               <Separator />
               <div className="flex items-center justify-between">
