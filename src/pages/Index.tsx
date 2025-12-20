@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MeetingBot } from "@/components/MeetingBot";
 import { RecordingViewer } from "@/components/RecordingViewer";
+import { RecordingsList } from "@/components/recordings/RecordingsList";
 import { Toaster } from "@/components/ui/toaster";
 import { Mic } from "lucide-react";
 
@@ -26,12 +27,17 @@ const Index = () => {
         </div>
 
         {/* Main Content */}
-        <div className="flex flex-col items-center gap-8">
+        <div className="flex flex-col items-center gap-8 max-w-5xl mx-auto">
+          {/* Meeting Bot Input */}
           <MeetingBot onRecordingCreated={setActiveRecordingId} />
           
+          {/* Active Recording Status */}
           {activeRecordingId && (
             <RecordingViewer recordingId={activeRecordingId} />
           )}
+
+          {/* Recordings Dashboard */}
+          <RecordingsList />
         </div>
       </div>
       <Toaster />
