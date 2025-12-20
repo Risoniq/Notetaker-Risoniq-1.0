@@ -7,10 +7,10 @@ import { useToast } from "@/hooks/use-toast";
 import { Bot, Send, Loader2 } from "lucide-react";
 
 interface MeetingBotProps {
-  onMeetingCreated: (meetingId: string) => void;
+  onRecordingCreated: (recordingId: string) => void;
 }
 
-export function MeetingBot({ onMeetingCreated }: MeetingBotProps) {
+export function MeetingBot({ onRecordingCreated }: MeetingBotProps) {
   const [meetingUrl, setMeetingUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
@@ -38,10 +38,10 @@ export function MeetingBot({ onMeetingCreated }: MeetingBotProps) {
         description: "Bot wurde zum Meeting gesendet!",
       });
 
-      // Handle both meetingId and recording.meeting_id responses
-      const meetingId = data?.meetingId || data?.recording?.meeting_id;
-      if (meetingId) {
-        onMeetingCreated(meetingId);
+      // Nutze die Recording UUID (id) für sync-recording
+      const recordingId = data?.recording?.id;
+      if (recordingId) {
+        onRecordingCreated(recordingId);
       }
       
       setMeetingUrl("");

@@ -18,10 +18,10 @@ interface Recording {
 }
 
 interface RecordingViewerProps {
-  meetingId: string;
+  recordingId: string;
 }
 
-export function RecordingViewer({ meetingId }: RecordingViewerProps) {
+export function RecordingViewer({ recordingId }: RecordingViewerProps) {
   const [recording, setRecording] = useState<Recording | null>(null);
   const [status, setStatus] = useState<string>("pending");
   const [isLoading, setIsLoading] = useState(true);
@@ -29,10 +29,10 @@ export function RecordingViewer({ meetingId }: RecordingViewerProps) {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        // Sync recording status via edge function
+        // Sync recording status via edge function (nutzt jetzt id statt meetingId)
         const { data: syncData, error: syncError } = await supabase.functions.invoke(
           "sync-recording",
-          { body: { meetingId } }
+          { body: { id: recordingId } }
         );
 
         if (syncError) {
@@ -46,15 +46,15 @@ export function RecordingViewer({ meetingId }: RecordingViewerProps) {
         // If done, fetch recording data from table
         if (syncData?.status === "done") {
           const { data: recordingData, error: fetchError } = await supabase
-            .from("recordings" as any)
+            .from("recordings")
             .select("*")
-            .eq("meeting_id", meetingId)
+            .eq("id", recordingId)
             .maybeSingle();
 
           if (fetchError) {
             console.error("Fetch error:", fetchError);
           } else if (recordingData) {
-            setRecording(recordingData as unknown as Recording);
+            setRecording(recordingData as Recording);
           }
         }
       } catch (error) {
@@ -75,7 +75,7 @@ export function RecordingViewer({ meetingId }: RecordingViewerProps) {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [meetingId, status]);
+  }, [recordingId, status]);
 
   const getStatusBadge = () => {
     switch (status) {
@@ -163,7 +163,7 @@ export function RecordingViewer({ meetingId }: RecordingViewerProps) {
                 : "Warte auf den Bot..."}
             </p>
             <p className="text-sm text-muted-foreground mt-2">
-              Meeting ID: {meetingId}
+              Recording ID: {recordingId}
             </p>
           </div>
         ) : recording ? (

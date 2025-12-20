@@ -1,204 +1,132 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-// Recall.ai Status zu internem Status mappen
-const statusMap: Record<string, string> = {
-  "ready": "pending",
-  "joining_call": "joining",
-  "in_waiting_room": "joining",
-  "in_call_not_recording": "joining",
-  "in_call_recording": "recording",
-  "recording_permission_allowed": "recording",
-  "recording_permission_denied": "error",
-  "call_ended": "processing",
-  "recording_done": "processing",
-  "media_expired": "error",
-  "analysis_done": "processing",
-  "done": "done",
-  "fatal": "error",
-};
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { meetingId } = await req.json();
+    // 1. Supabase Client & Secrets laden
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    const supabase = createClient(supabaseUrl, supabaseKey)
 
-    if (!meetingId) {
-      return new Response(
-        JSON.stringify({ error: "Meeting ID is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    const recallApiKey = Deno.env.get('RECALL_API_KEY')
+    const recallApiUrl = Deno.env.get('RECALL_API_URL') || 'https://us-west-2.recall.ai/api/v1/bot'
 
-    console.log("[sync-recording] Syncing status for meeting:", meetingId);
+    // 2. ID aus dem Request holen (vom Frontend gesendet)
+    const { id } = await req.json()
+    console.log(`Sync-Recording aufgerufen für ID: ${id}`)
 
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Get recording from database
+    // 3. Datenbank-Eintrag holen, um die recall_bot_id zu bekommen
     const { data: recording, error: dbError } = await supabase
-      .from("recordings")
-      .select("*")
-      .eq("meeting_id", meetingId)
-      .maybeSingle();
+      .from('recordings')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle()
 
     if (dbError) {
-      console.error("[sync-recording] DB error:", dbError);
-      throw dbError;
+      console.error('DB Fehler:', dbError)
+      throw new Error("Datenbankfehler beim Abrufen der Aufnahme.")
     }
 
     if (!recording) {
-      return new Response(
-        JSON.stringify({ error: "Recording not found", status: "not_found" }),
-        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      throw new Error("Keine Aufnahme mit dieser ID gefunden.")
     }
 
-    console.log("[sync-recording] Current status:", recording.status, "recall_bot_id:", recording.recall_bot_id);
-
-    // If already done, just return current status
-    if (recording.status === "done") {
-      return new Response(
-        JSON.stringify({ 
-          status: "done",
-          video_url: recording.video_url,
-          transcript_text: recording.transcript_text
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (!recording.recall_bot_id) {
+      throw new Error("Keine Recall Bot ID in der Datenbank gefunden.")
     }
 
-    // Check Recall.ai API key
-    const recallApiKey = Deno.env.get("RECALL_API_KEY");
-    
-    if (!recallApiKey || !recording.recall_bot_id) {
-      console.log("[sync-recording] No Recall API key or bot ID, returning current status");
-      return new Response(
-        JSON.stringify({ status: recording.status }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    console.log(`Prüfe Status für Bot: ${recording.recall_bot_id}`)
 
-    // Fetch bot status from Recall.ai
-    const recallApiUrl = Deno.env.get("RECALL_API_URL") || "https://us-west-2.recall.ai/api/v1/bot";
-    const botStatusUrl = `${recallApiUrl}/${recording.recall_bot_id}/`;
-    
-    console.log("[sync-recording] Fetching Recall.ai status:", botStatusUrl);
-    
-    const recallResponse = await fetch(botStatusUrl, {
-      method: "GET",
+    // 4. Status bei Recall.ai abfragen
+    const response = await fetch(`${recallApiUrl}/${recording.recall_bot_id}`, {
+      method: 'GET',
       headers: {
-        "Authorization": `Token ${recallApiKey}`,
+        'Authorization': `Token ${recallApiKey}`,
+        'Content-Type': 'application/json',
       },
-    });
+    })
 
-    if (!recallResponse.ok) {
-      const errorText = await recallResponse.text();
-      console.error("[sync-recording] Recall API error:", errorText);
-      return new Response(
-        JSON.stringify({ status: recording.status, error: "Failed to fetch Recall status" }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (!response.ok) {
+      console.error('Recall API Fehler:', response.status, response.statusText)
+      throw new Error("Fehler beim Abruf von Recall.ai")
     }
-
-    const botData = await recallResponse.json();
-    console.log("[sync-recording] Recall.ai bot status:", botData.status_changes);
-
-    // Get latest status from status_changes array
-    const latestRecallStatus = botData.status_changes?.[botData.status_changes.length - 1]?.code || "ready";
-    const mappedStatus = statusMap[latestRecallStatus] || recording.status;
     
-    console.log("[sync-recording] Latest Recall status:", latestRecallStatus, "-> Mapped:", mappedStatus);
+    const botData = await response.json()
+    const status = botData.status
+    console.log(`Bot Status: ${status}`)
 
-    // Prepare update data
-    const updateData: Record<string, unknown> = {};
-    
-    if (mappedStatus !== recording.status) {
-      updateData.status = mappedStatus;
-    }
+    // 5. Daten vorbereiten für Update
+    const updates: Record<string, unknown> = { status: status }
 
-    // If done or processing, try to get video and transcript
-    if (mappedStatus === "done" || latestRecallStatus === "done" || latestRecallStatus === "analysis_done") {
-      // Get video URL from recording
+    // Wenn der Bot fertig ist ('done'), holen wir die Video- und Transkript-URLs
+    if (status === 'done') {
       if (botData.video_url) {
-        updateData.video_url = botData.video_url;
-        console.log("[sync-recording] Video URL found:", botData.video_url);
+        updates.video_url = botData.video_url
       }
-
-      // Fetch transcript
+      
+      // Transkript abrufen
       try {
-        const transcriptUrl = `${recallApiUrl}/${recording.recall_bot_id}/transcript/`;
-        const transcriptResponse = await fetch(transcriptUrl, {
-          method: "GET",
+        const transcriptResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}/transcript/`, {
+          method: 'GET',
           headers: {
-            "Authorization": `Token ${recallApiKey}`,
+            'Authorization': `Token ${recallApiKey}`,
+            'Content-Type': 'application/json',
           },
-        });
+        })
 
         if (transcriptResponse.ok) {
-          const transcriptData = await transcriptResponse.json();
+          const transcriptData = await transcriptResponse.json()
+          console.log('Transkript abgerufen:', transcriptData.length, 'Einträge')
           
-          // Format transcript as readable text
+          // Transkript formatieren
           if (Array.isArray(transcriptData) && transcriptData.length > 0) {
             const formattedTranscript = transcriptData
-              .map((segment: { speaker: string; words: { text: string }[] }) => {
-                const speakerName = segment.speaker || "Unbekannt";
-                const text = segment.words?.map((w) => w.text).join(" ") || "";
-                return `${speakerName}: ${text}`;
+              .map((entry: { speaker?: string; words?: { text?: string }[] }) => {
+                const speaker = entry.speaker || 'Unbekannt'
+                const text = entry.words?.map(w => w.text).join(' ') || ''
+                return `${speaker}: ${text}`
               })
-              .join("\n\n");
+              .join('\n\n')
             
-            updateData.transcript_text = formattedTranscript;
-            updateData.status = "done";
-            console.log("[sync-recording] Transcript fetched, length:", formattedTranscript.length);
+            updates.transcript_text = formattedTranscript
           }
-        } else {
-          console.log("[sync-recording] Transcript not ready yet");
         }
       } catch (transcriptError) {
-        console.error("[sync-recording] Error fetching transcript:", transcriptError);
+        console.error('Transkript-Abruf fehlgeschlagen:', transcriptError)
       }
     }
 
-    // Update database if there are changes
-    if (Object.keys(updateData).length > 0) {
-      const { error: updateError } = await supabase
-        .from("recordings")
-        .update(updateData)
-        .eq("meeting_id", meetingId);
+    // 6. Datenbank aktualisieren
+    const { error: updateError } = await supabase
+      .from('recordings')
+      .update(updates)
+      .eq('id', id)
 
-      if (updateError) {
-        console.error("[sync-recording] Update error:", updateError);
-      } else {
-        console.log("[sync-recording] Database updated:", updateData);
-      }
+    if (updateError) {
+      console.error('Update Fehler:', updateError)
+      throw new Error("Fehler beim Update der DB")
     }
 
-    return new Response(
-      JSON.stringify({ 
-        status: updateData.status || mappedStatus,
-        video_url: updateData.video_url,
-        transcript_text: updateData.transcript_text,
-        recall_status: latestRecallStatus
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.log('Datenbank aktualisiert:', updates)
+
+    return new Response(JSON.stringify({ status: status, data: botData }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+
   } catch (error: unknown) {
-    console.error("[sync-recording] Error:", error);
-    const errorMessage = error instanceof Error ? error.message : "Failed to sync recording";
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    console.error('Sync-Recording Fehler:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Unbekannter Fehler'
+    return new Response(JSON.stringify({ error: errorMessage }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
-});
+})
