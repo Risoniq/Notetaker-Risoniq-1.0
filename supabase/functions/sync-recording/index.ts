@@ -60,8 +60,30 @@ Deno.serve(async (req) => {
     }
     
     const botData = await response.json()
-    const status = botData.status
-    console.log(`Bot Status: ${status}`)
+    
+    // Status aus status_changes Array extrahieren (letzter Eintrag)
+    const latestStatus = botData.status_changes?.[botData.status_changes.length - 1]?.code || 'pending'
+    console.log(`Bot Status (raw): ${latestStatus}`)
+    
+    // Status mapping
+    const statusMap: Record<string, string> = {
+      "ready": "pending",
+      "joining_call": "joining",
+      "in_waiting_room": "joining",
+      "in_call_not_recording": "joining",
+      "in_call_recording": "recording",
+      "recording_permission_allowed": "recording",
+      "recording_permission_denied": "error",
+      "call_ended": "processing",
+      "recording_done": "processing",
+      "media_expired": "error",
+      "analysis_done": "done",
+      "done": "done",
+      "fatal": "error",
+    }
+    
+    const status = statusMap[latestStatus] || latestStatus
+    console.log(`Bot Status (mapped): ${status}`)
 
     // 5. Daten vorbereiten für Update
     const updates: Record<string, unknown> = { status: status }
