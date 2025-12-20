@@ -320,7 +320,7 @@ export default function MeetingDetail() {
 
         {/* KPI Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          {/* Teilnehmer Card */}
+          {/* Teilnehmer Card - Network Graph Visualization */}
           <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in hover:shadow-lg transition-all hover:-translate-y-1" style={{ animationDelay: '100ms' }}>
             <CardContent className="p-6">
               <div className="flex items-center gap-4 mb-4">
@@ -333,20 +333,32 @@ export default function MeetingDetail() {
                 </div>
               </div>
 
-              {/* Mini Chart Placeholder */}
-              <div className="h-24 flex items-end gap-1">
-                {[30, 45, 60, 80, 65, 90, participantCount * 20].map((h, i) => (
-                  <div 
-                    key={i} 
-                    className="flex-1 bg-gradient-to-t from-accent/60 to-accent rounded-t-sm transition-all"
-                    style={{ height: `${Math.min(h, 100)}%` }}
-                  />
-                ))}
+              {/* Network Graph Visualization */}
+              <div className="h-24 relative flex items-center justify-center">
+                <svg className="w-full h-full" viewBox="0 0 120 80">
+                  {/* Connection lines */}
+                  <line x1="60" y1="40" x2="25" y2="20" stroke="hsl(var(--primary))" strokeWidth="1" strokeOpacity="0.3" />
+                  <line x1="60" y1="40" x2="95" y2="20" stroke="hsl(var(--primary))" strokeWidth="1" strokeOpacity="0.3" />
+                  <line x1="60" y1="40" x2="20" y2="55" stroke="hsl(var(--primary))" strokeWidth="1" strokeOpacity="0.3" />
+                  <line x1="60" y1="40" x2="100" y2="55" stroke="hsl(var(--primary))" strokeWidth="1" strokeOpacity="0.3" />
+                  <line x1="25" y1="20" x2="95" y2="20" stroke="hsl(var(--primary))" strokeWidth="1" strokeOpacity="0.15" strokeDasharray="2,2" />
+                  <line x1="20" y1="55" x2="100" y2="55" stroke="hsl(var(--primary))" strokeWidth="1" strokeOpacity="0.15" strokeDasharray="2,2" />
+                  
+                  {/* Central node (meeting) */}
+                  <circle cx="60" cy="40" r="12" fill="hsl(var(--primary))" fillOpacity="0.2" stroke="hsl(var(--primary))" strokeWidth="2" />
+                  <circle cx="60" cy="40" r="6" fill="hsl(var(--primary))" />
+                  
+                  {/* Participant nodes */}
+                  {participantCount >= 1 && <circle cx="25" cy="20" r="8" fill="hsl(var(--primary))" fillOpacity="0.6" className="animate-pulse" style={{ animationDelay: '0ms' }} />}
+                  {participantCount >= 2 && <circle cx="95" cy="20" r="8" fill="hsl(var(--primary))" fillOpacity="0.6" className="animate-pulse" style={{ animationDelay: '200ms' }} />}
+                  {participantCount >= 3 && <circle cx="20" cy="55" r="8" fill="hsl(var(--primary))" fillOpacity="0.6" className="animate-pulse" style={{ animationDelay: '400ms' }} />}
+                  {participantCount >= 4 && <circle cx="100" cy="55" r="8" fill="hsl(var(--primary))" fillOpacity="0.6" className="animate-pulse" style={{ animationDelay: '600ms' }} />}
+                </svg>
               </div>
             </CardContent>
           </Card>
 
-          {/* Key Points Card */}
+          {/* Key Points Card - Radar/Sunburst Visualization */}
           <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in hover:shadow-lg transition-all hover:-translate-y-1" style={{ animationDelay: '150ms' }}>
             <CardContent className="p-6">
               <div className="flex items-center gap-4 mb-4">
@@ -359,31 +371,42 @@ export default function MeetingDetail() {
                 </div>
               </div>
 
-              {/* Area Chart */}
-              <div className="h-24 relative">
-                <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M0,35 Q15,30 25,25 T50,15 T75,20 T100,10 V40 H0 Z"
-                    fill="url(#chartGradient)"
-                  />
-                  <path
-                    d="M0,35 Q15,30 25,25 T50,15 T75,20 T100,10"
-                    fill="none"
-                    stroke="hsl(var(--accent))"
-                    strokeWidth="2"
-                  />
+              {/* Radial/Target Visualization */}
+              <div className="h-24 relative flex items-center justify-center">
+                <svg className="w-full h-full" viewBox="0 0 120 80">
+                  {/* Concentric circles (target rings) */}
+                  <circle cx="60" cy="40" r="35" fill="none" stroke="hsl(var(--accent))" strokeWidth="1" strokeOpacity="0.1" />
+                  <circle cx="60" cy="40" r="25" fill="none" stroke="hsl(var(--accent))" strokeWidth="1" strokeOpacity="0.2" />
+                  <circle cx="60" cy="40" r="15" fill="none" stroke="hsl(var(--accent))" strokeWidth="1" strokeOpacity="0.3" />
+                  <circle cx="60" cy="40" r="5" fill="hsl(var(--accent))" fillOpacity="0.5" />
+                  
+                  {/* Key point indicators as radial dots */}
+                  {Array.from({ length: Math.min(keyPointsCount, 8) }).map((_, i) => {
+                    const angle = (i * 360 / Math.min(keyPointsCount, 8)) * (Math.PI / 180) - Math.PI / 2;
+                    const radius = 20 + (i % 3) * 8;
+                    const x = 60 + Math.cos(angle) * radius;
+                    const y = 40 + Math.sin(angle) * radius;
+                    return (
+                      <g key={i}>
+                        <line 
+                          x1="60" y1="40" x2={x} y2={y} 
+                          stroke="hsl(var(--accent))" strokeWidth="1" strokeOpacity="0.3" 
+                        />
+                        <circle 
+                          cx={x} cy={y} r="4" 
+                          fill="hsl(var(--accent))" 
+                          className="animate-pulse"
+                          style={{ animationDelay: `${i * 100}ms` }}
+                        />
+                      </g>
+                    );
+                  })}
                 </svg>
               </div>
             </CardContent>
           </Card>
 
-          {/* To-Dos Card */}
+          {/* To-Dos Card - Checklist Progress Visualization */}
           <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in hover:shadow-lg transition-all hover:-translate-y-1" style={{ animationDelay: '200ms' }}>
             <CardContent className="p-6">
               <div className="flex items-center gap-4 mb-4">
@@ -396,26 +419,30 @@ export default function MeetingDetail() {
                 </div>
               </div>
 
-              {/* Area Chart */}
-              <div className="h-24 relative">
-                <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id="chartGradientGreen" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stopColor="hsl(var(--success))" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="hsl(var(--success))" stopOpacity="0" />
-                    </linearGradient>
-                  </defs>
-                  <path
-                    d="M0,38 Q20,35 35,28 T60,18 T85,22 T100,12 V40 H0 Z"
-                    fill="url(#chartGradientGreen)"
-                  />
-                  <path
-                    d="M0,38 Q20,35 35,28 T60,18 T85,22 T100,12"
-                    fill="none"
-                    stroke="hsl(var(--success))"
-                    strokeWidth="2"
-                  />
-                </svg>
+              {/* Task List Visualization */}
+              <div className="h-24 flex flex-col justify-center gap-2">
+                {Array.from({ length: Math.min(actionItemsCount, 4) }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-2 animate-fade-in" style={{ animationDelay: `${i * 100}ms` }}>
+                    <div className="w-4 h-4 rounded border-2 border-success/60 flex items-center justify-center bg-success/10">
+                      <div className="w-2 h-2 rounded-sm bg-success/60" />
+                    </div>
+                    <div className="flex-1 h-2 bg-muted/30 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-gradient-to-r from-success/60 to-success rounded-full transition-all"
+                        style={{ width: `${70 + Math.random() * 30}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono">#{i + 1}</span>
+                  </div>
+                ))}
+                {actionItemsCount > 4 && (
+                  <p className="text-xs text-muted-foreground text-center">+{actionItemsCount - 4} weitere</p>
+                )}
+                {actionItemsCount === 0 && (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-sm text-muted-foreground">Keine To-Dos</p>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
