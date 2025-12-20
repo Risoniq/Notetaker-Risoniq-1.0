@@ -21,12 +21,14 @@ import {
   Users,
   Copy,
   Check,
-  Sparkles
+  Sparkles,
+  Play
 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { toast } from "sonner";
 
+type TimeFilter = 'heute' | '7tage' | '30tage' | '90tage' | 'alle';
 
 export default function MeetingDetail() {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +36,7 @@ export default function MeetingDetail() {
   const [recording, setRecording] = useState<Recording | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<TimeFilter>('7tage');
 
   useEffect(() => {
     const fetchRecording = async () => {
@@ -44,9 +47,14 @@ export default function MeetingDetail() {
           .from('recordings')
           .select('*')
           .eq('id', id)
-          .single();
+          .maybeSingle();
 
         if (error) throw error;
+        if (!data) {
+          toast.error("Meeting nicht gefunden");
+          navigate('/');
+          return;
+        }
         setRecording(data as Recording);
       } catch (error) {
         console.error('Error fetching recording:', error);
@@ -82,7 +90,7 @@ export default function MeetingDetail() {
     
     if (recording.action_items && recording.action_items.length > 0) {
       email += `**Nächste Schritte:**\n`;
-      recording.action_items.forEach((item, index) => {
+      recording.action_items.forEach((item) => {
         email += `☐ ${item}\n`;
       });
       email += `\n`;
@@ -105,12 +113,13 @@ export default function MeetingDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
-        <div className="container mx-auto px-4 py-8 max-w-6xl">
-          <Skeleton className="h-10 w-48 mb-8" />
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <Skeleton className="h-64 lg:col-span-2" />
-            <Skeleton className="h-64" />
+      <div className="min-h-screen gradient-hero">
+        <div className="container mx-auto px-6 py-8 max-w-7xl">
+          <Skeleton className="h-12 w-64 mb-8 rounded-2xl" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-48 rounded-3xl" />
+            ))}
           </div>
         </div>
       </div>
@@ -119,7 +128,7 @@ export default function MeetingDetail() {
 
   if (!recording) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen gradient-hero flex items-center justify-center">
         <p className="text-muted-foreground">Meeting nicht gefunden</p>
       </div>
     );
@@ -143,159 +152,215 @@ export default function MeetingDetail() {
   
   const participants = extractParticipants(recording.transcript_text);
   const participantCount = participants.length > 0 ? participants.length : 
-    (recording.transcript_text ? 1 : 0); // Mindestens 1 wenn Transkript vorhanden
+    (recording.transcript_text ? 1 : 0);
 
-  // KPIs berechnen
-  const kpis = {
-    wordsPerMinute: duration > 0 ? Math.round(wordCount / duration) : 0,
-    avgKeyPointLength: keyPointsCount > 0 
-      ? Math.round(recording.key_points!.reduce((acc, p) => acc + p.length, 0) / keyPointsCount)
-      : 0,
-    completionRate: recording.status === 'done' ? 100 : 
-      recording.status === 'processing' ? 75 :
-      recording.status === 'recording' ? 50 : 25,
-  };
+  const filterButtons: { key: TimeFilter; label: string }[] = [
+    { key: 'heute', label: 'Heute' },
+    { key: '7tage', label: '7 Tage' },
+    { key: '30tage', label: '30 Tage' },
+    { key: '90tage', label: '90 Tage' },
+    { key: 'alle', label: 'Alle' },
+  ];
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
+    <div className="min-h-screen gradient-hero">
+      <div className="container mx-auto px-6 py-8 max-w-7xl">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8 animate-fade-in">
           <Button 
             variant="ghost" 
             size="icon"
             onClick={() => navigate('/')}
-            className="shrink-0"
+            className="shrink-0 rounded-xl hover:bg-white/50 transition-all"
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-foreground truncate">
+            <h1 className="text-3xl font-bold text-foreground">
               {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
             </h1>
-            <div className="flex flex-wrap items-center gap-3 mt-1 text-sm text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <Calendar className="h-4 w-4" />
-                <span>{formattedDate}</span>
-              </div>
-              {duration > 0 && (
-                <div className="flex items-center gap-1.5">
-                  <Clock className="h-4 w-4" />
-                  <span>{duration} Minuten</span>
-                </div>
-              )}
-            </div>
+            <p className="text-muted-foreground mt-1">
+              Überblick über deine wichtigsten Kennzahlen
+            </p>
           </div>
-          <Badge className={`shrink-0 ${getStatusColor(recording.status)}`}>
+          <Badge className={`shrink-0 px-4 py-1.5 text-sm rounded-full ${getStatusColor(recording.status)}`}>
             {getStatusLabel(recording.status)}
           </Badge>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 animate-slide-up">
-          <Card className="gradient-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-primary/10">
-                  <Users className="h-5 w-5 text-primary" />
+        {/* Welcome Banner */}
+        <div className="glass-card rounded-3xl p-6 mb-8 shadow-card animate-fade-in" style={{ animationDelay: '50ms' }}>
+          <div className="flex items-center gap-4">
+            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20">
+              <Calendar className="h-8 w-8 text-primary" />
+            </div>
+            <div>
+              <p className="text-lg font-medium text-foreground">{formattedDate}</p>
+              <div className="flex items-center gap-4 text-muted-foreground text-sm mt-1">
+                {duration > 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="h-4 w-4" />
+                    {duration} Minuten
+                  </span>
+                )}
+                <span className="flex items-center gap-1.5">
+                  <Users className="h-4 w-4" />
+                  {participantCount} Teilnehmer
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* KPI Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          {/* Teilnehmer Card */}
+          <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in hover:shadow-lg transition-all hover:-translate-y-1" style={{ animationDelay: '100ms' }}>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 rounded-2xl bg-primary/10">
+                  <Users className="h-6 w-6 text-primary" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{participantCount}</p>
-                  <p className="text-xs text-muted-foreground">Teilnehmer</p>
+                  <p className="text-sm text-muted-foreground font-medium">Teilnehmer</p>
+                  <p className="text-3xl font-bold text-primary">{participantCount}</p>
                 </div>
+              </div>
+              
+              {/* Filter Pills */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {filterButtons.map((btn) => (
+                  <button
+                    key={btn.key}
+                    onClick={() => setActiveFilter(btn.key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                      activeFilter === btn.key
+                        ? 'bg-primary text-primary-foreground shadow-primary'
+                        : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Mini Chart Placeholder */}
+              <div className="h-24 flex items-end gap-1">
+                {[30, 45, 60, 80, 65, 90, participantCount * 20].map((h, i) => (
+                  <div 
+                    key={i} 
+                    className="flex-1 bg-gradient-to-t from-accent/60 to-accent rounded-t-sm transition-all"
+                    style={{ height: `${Math.min(h, 100)}%` }}
+                  />
+                ))}
               </div>
             </CardContent>
           </Card>
 
-          <Card className="gradient-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-accent/10">
-                  <Target className="h-5 w-5 text-accent" />
+          {/* Key Points Card */}
+          <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in hover:shadow-lg transition-all hover:-translate-y-1" style={{ animationDelay: '150ms' }}>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 rounded-2xl bg-accent/10">
+                  <Target className="h-6 w-6 text-accent" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{keyPointsCount}</p>
-                  <p className="text-xs text-muted-foreground">Key Points</p>
+                  <p className="text-sm text-muted-foreground font-medium">Key Points</p>
+                  <p className="text-3xl font-bold text-accent">{keyPointsCount}</p>
                 </div>
+              </div>
+              
+              {/* Filter Pills */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {filterButtons.map((btn) => (
+                  <button
+                    key={btn.key}
+                    onClick={() => setActiveFilter(btn.key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                      activeFilter === btn.key
+                        ? 'bg-primary text-primary-foreground shadow-primary'
+                        : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Area Chart */}
+              <div className="h-24 relative">
+                <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="chartGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="hsl(var(--accent))" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="hsl(var(--accent))" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M0,35 Q15,30 25,25 T50,15 T75,20 T100,10 V40 H0 Z"
+                    fill="url(#chartGradient)"
+                  />
+                  <path
+                    d="M0,35 Q15,30 25,25 T50,15 T75,20 T100,10"
+                    fill="none"
+                    stroke="hsl(var(--accent))"
+                    strokeWidth="2"
+                  />
+                </svg>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="gradient-card">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-success/10">
-                  <CheckSquare className="h-5 w-5 text-success" />
+          {/* To-Dos Card */}
+          <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in hover:shadow-lg transition-all hover:-translate-y-1" style={{ animationDelay: '200ms' }}>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="p-3 rounded-2xl bg-success/10">
+                  <CheckSquare className="h-6 w-6 text-success" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{actionItemsCount}</p>
-                  <p className="text-xs text-muted-foreground">To-Dos</p>
+                  <p className="text-sm text-muted-foreground font-medium">To-Dos</p>
+                  <p className="text-3xl font-bold text-success">{actionItemsCount}</p>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+              
+              {/* Filter Pills */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {filterButtons.map((btn) => (
+                  <button
+                    key={btn.key}
+                    onClick={() => setActiveFilter(btn.key)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                      activeFilter === btn.key
+                        ? 'bg-primary text-primary-foreground shadow-primary'
+                        : 'bg-secondary/50 text-muted-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
 
-          <Card className="gradient-card">
-            <CardContent className="p-4">
-              <div className="flex flex-col items-center gap-2">
-                <div className="relative w-16 h-16">
-                  <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
-                    {/* Background circle */}
-                    <circle
-                      cx="18"
-                      cy="18"
-                      r="14"
-                      fill="none"
-                      stroke="hsl(var(--muted))"
-                      strokeWidth="4"
-                    />
-                    {/* Participants segment (primary) */}
-                    <circle
-                      cx="18"
-                      cy="18"
-                      r="14"
-                      fill="none"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth="4"
-                      strokeDasharray={`${(participantCount / Math.max(participantCount + keyPointsCount + actionItemsCount, 1)) * 88} 88`}
-                      strokeDashoffset="0"
-                      className="transition-all duration-500"
-                    />
-                    {/* Key Points segment (accent) */}
-                    <circle
-                      cx="18"
-                      cy="18"
-                      r="14"
-                      fill="none"
-                      stroke="hsl(var(--accent))"
-                      strokeWidth="4"
-                      strokeDasharray={`${(keyPointsCount / Math.max(participantCount + keyPointsCount + actionItemsCount, 1)) * 88} 88`}
-                      strokeDashoffset={`${-(participantCount / Math.max(participantCount + keyPointsCount + actionItemsCount, 1)) * 88}`}
-                      className="transition-all duration-500"
-                    />
-                    {/* To-Dos segment (success) */}
-                    <circle
-                      cx="18"
-                      cy="18"
-                      r="14"
-                      fill="none"
-                      stroke="hsl(var(--success))"
-                      strokeWidth="4"
-                      strokeDasharray={`${(actionItemsCount / Math.max(participantCount + keyPointsCount + actionItemsCount, 1)) * 88} 88`}
-                      strokeDashoffset={`${-((participantCount + keyPointsCount) / Math.max(participantCount + keyPointsCount + actionItemsCount, 1)) * 88}`}
-                      className="transition-all duration-500"
-                    />
-                  </svg>
-                </div>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  className="text-xs h-7 gap-1.5 hover:bg-primary hover:text-primary-foreground transition-colors"
-                  onClick={() => toast.info("Deep Dive Analyse wird geladen...")}
-                >
-                  <Sparkles className="h-3 w-3" />
-                  Deep Dive
-                </Button>
+              {/* Area Chart */}
+              <div className="h-24 relative">
+                <svg className="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id="chartGradientGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stopColor="hsl(var(--success))" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="hsl(var(--success))" stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d="M0,38 Q20,35 35,28 T60,18 T85,22 T100,12 V40 H0 Z"
+                    fill="url(#chartGradientGreen)"
+                  />
+                  <path
+                    d="M0,38 Q20,35 35,28 T60,18 T85,22 T100,12"
+                    fill="none"
+                    stroke="hsl(var(--success))"
+                    strokeWidth="2"
+                  />
+                </svg>
               </div>
             </CardContent>
           </Card>
@@ -303,18 +368,20 @@ export default function MeetingDetail() {
 
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column - Key Points & Action Items */}
+          {/* Left Column - Content */}
           <div className="lg:col-span-2 space-y-6">
             {/* Summary */}
             {recording.summary && (
-              <Card className="animate-slide-up" style={{ animationDelay: '100ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <MessageSquare className="h-5 w-5 text-primary" />
+              <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '250ms' }}>
+                <CardHeader className="pb-3 pt-6 px-6">
+                  <CardTitle className="flex items-center gap-3 text-lg">
+                    <div className="p-2 rounded-xl bg-primary/10">
+                      <MessageSquare className="h-5 w-5 text-primary" />
+                    </div>
                     Zusammenfassung
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-6 pb-6">
                   <p className="text-foreground leading-relaxed">{recording.summary}</p>
                 </CardContent>
               </Card>
@@ -322,21 +389,23 @@ export default function MeetingDetail() {
 
             {/* Key Points */}
             {recording.key_points && recording.key_points.length > 0 && (
-              <Card className="animate-slide-up" style={{ animationDelay: '150ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Target className="h-5 w-5 text-accent" />
+              <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '300ms' }}>
+                <CardHeader className="pb-3 pt-6 px-6">
+                  <CardTitle className="flex items-center gap-3 text-lg">
+                    <div className="p-2 rounded-xl bg-accent/10">
+                      <Target className="h-5 w-5 text-accent" />
+                    </div>
                     Key Points
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-6 pb-6">
                   <ul className="space-y-3">
                     {recording.key_points.map((point, index) => (
-                      <li key={index} className="flex items-start gap-3">
-                        <span className="flex items-center justify-center h-6 w-6 rounded-full bg-accent/10 text-accent text-sm font-medium shrink-0">
+                      <li key={index} className="flex items-start gap-3 p-3 rounded-2xl bg-secondary/30 hover:bg-secondary/50 transition-colors">
+                        <span className="flex items-center justify-center h-7 w-7 rounded-full bg-accent text-accent-foreground text-sm font-bold shrink-0">
                           {index + 1}
                         </span>
-                        <span className="text-foreground">{point}</span>
+                        <span className="text-foreground pt-0.5">{point}</span>
                       </li>
                     ))}
                   </ul>
@@ -346,18 +415,22 @@ export default function MeetingDetail() {
 
             {/* Action Items */}
             {recording.action_items && recording.action_items.length > 0 && (
-              <Card className="animate-slide-up" style={{ animationDelay: '200ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <CheckSquare className="h-5 w-5 text-success" />
-                    Action Items
+              <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '350ms' }}>
+                <CardHeader className="pb-3 pt-6 px-6">
+                  <CardTitle className="flex items-center gap-3 text-lg">
+                    <div className="p-2 rounded-xl bg-success/10">
+                      <CheckSquare className="h-5 w-5 text-success" />
+                    </div>
+                    To-Dos
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="px-6 pb-6">
                   <ul className="space-y-3">
                     {recording.action_items.map((item, index) => (
-                      <li key={index} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors">
-                        <div className="h-5 w-5 rounded border-2 border-success/50 shrink-0 mt-0.5" />
+                      <li key={index} className="flex items-start gap-3 p-3 rounded-2xl bg-secondary/30 hover:bg-secondary/50 transition-colors group cursor-pointer">
+                        <div className="h-6 w-6 rounded-lg border-2 border-success/50 shrink-0 mt-0.5 group-hover:bg-success/20 transition-colors flex items-center justify-center">
+                          <Check className="h-4 w-4 text-success opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                         <span className="text-foreground">{item}</span>
                       </li>
                     ))}
@@ -368,15 +441,17 @@ export default function MeetingDetail() {
 
             {/* Transcript */}
             {recording.transcript_text && (
-              <Card className="animate-slide-up" style={{ animationDelay: '250ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <FileText className="h-5 w-5 text-muted-foreground" />
+              <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '400ms' }}>
+                <CardHeader className="pb-3 pt-6 px-6">
+                  <CardTitle className="flex items-center gap-3 text-lg">
+                    <div className="p-2 rounded-xl bg-muted">
+                      <FileText className="h-5 w-5 text-muted-foreground" />
+                    </div>
                     Transkript
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="max-h-96 overflow-y-auto rounded-lg bg-muted/30 p-4">
+                <CardContent className="px-6 pb-6">
+                  <div className="max-h-80 overflow-y-auto rounded-2xl bg-secondary/30 p-4">
                     <p className="text-foreground whitespace-pre-wrap text-sm leading-relaxed">
                       {recording.transcript_text}
                     </p>
@@ -386,29 +461,53 @@ export default function MeetingDetail() {
             )}
           </div>
 
-          {/* Right Column - Follow-Up & Video */}
+          {/* Right Column - Actions */}
           <div className="space-y-6">
+            {/* Deep Dive Button */}
+            <Card className="glass-card border-0 rounded-3xl shadow-card overflow-hidden animate-fade-in" style={{ animationDelay: '250ms' }}>
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center text-center">
+                  <div className="p-4 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20 mb-4">
+                    <Sparkles className="h-10 w-10 text-primary" />
+                  </div>
+                  <h3 className="font-semibold text-foreground mb-2">Deep Dive Analyse</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    KI-gestützte Tiefenanalyse des Meetings
+                  </p>
+                  <Button 
+                    className="w-full rounded-xl bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 shadow-primary transition-all"
+                    onClick={() => toast.info("Deep Dive Analyse wird gestartet...")}
+                  >
+                    <Sparkles className="h-4 w-4 mr-2" />
+                    Analyse starten
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Follow-Up Email */}
-            <Card className="animate-slide-up" style={{ animationDelay: '100ms' }}>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Mail className="h-5 w-5 text-primary" />
+            <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '300ms' }}>
+              <CardHeader className="pb-3 pt-6 px-6">
+                <CardTitle className="flex items-center gap-3 text-lg">
+                  <div className="p-2 rounded-xl bg-primary/10">
+                    <Mail className="h-5 w-5 text-primary" />
+                  </div>
                   Follow-Up E-Mail
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="px-6 pb-6 space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  Generierte Follow-Up E-Mail basierend auf dem Meeting-Inhalt.
+                  Automatisch generierte Follow-Up E-Mail
                 </p>
-                <div className="max-h-64 overflow-y-auto rounded-lg bg-muted/30 p-3">
+                <div className="max-h-48 overflow-y-auto rounded-2xl bg-secondary/30 p-4">
                   <pre className="text-xs text-foreground whitespace-pre-wrap font-sans">
                     {generateFollowUpEmail(recording)}
                   </pre>
                 </div>
                 <Button 
-                  className="w-full" 
+                  className="w-full rounded-xl" 
+                  variant={copiedEmail ? "secondary" : "outline"}
                   onClick={copyEmailToClipboard}
-                  variant={copiedEmail ? "secondary" : "default"}
                 >
                   {copiedEmail ? (
                     <>
@@ -427,53 +526,59 @@ export default function MeetingDetail() {
 
             {/* Video */}
             {recording.video_url && (
-              <Card className="animate-slide-up" style={{ animationDelay: '150ms' }}>
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    <Video className="h-5 w-5 text-primary" />
+              <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '350ms' }}>
+                <CardHeader className="pb-3 pt-6 px-6">
+                  <CardTitle className="flex items-center gap-3 text-lg">
+                    <div className="p-2 rounded-xl bg-primary/10">
+                      <Video className="h-5 w-5 text-primary" />
+                    </div>
                     Video
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="aspect-video rounded-lg overflow-hidden bg-muted">
+                <CardContent className="px-6 pb-6">
+                  <div className="aspect-video rounded-2xl overflow-hidden bg-secondary/30 relative group">
                     <video 
                       src={recording.video_url} 
                       controls 
                       className="w-full h-full object-cover"
                     />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Meeting Stats */}
-            <Card className="animate-slide-up" style={{ animationDelay: '200ms' }}>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <BarChart3 className="h-5 w-5 text-accent" />
-                  Meeting Statistiken
+            {/* Stats */}
+            <Card className="glass-card border-0 rounded-3xl shadow-card animate-fade-in" style={{ animationDelay: '400ms' }}>
+              <CardHeader className="pb-3 pt-6 px-6">
+                <CardTitle className="flex items-center gap-3 text-lg">
+                  <div className="p-2 rounded-xl bg-accent/10">
+                    <BarChart3 className="h-5 w-5 text-accent" />
+                  </div>
+                  Statistiken
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="px-6 pb-6">
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center p-3 rounded-2xl bg-secondary/30">
                     <span className="text-sm text-muted-foreground">Dauer</span>
-                    <span className="font-medium text-foreground">{duration} Min</span>
+                    <span className="font-semibold text-foreground">{duration} Min</span>
                   </div>
-                  <Separator />
-                  <div className="flex justify-between items-center">
+                  <div className="flex justify-between items-center p-3 rounded-2xl bg-secondary/30">
                     <span className="text-sm text-muted-foreground">Wortanzahl</span>
-                    <span className="font-medium text-foreground">{wordCount.toLocaleString('de-DE')}</span>
+                    <span className="font-semibold text-foreground">{wordCount.toLocaleString('de-DE')}</span>
                   </div>
-                  <Separator />
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Wörter pro Minute</span>
-                    <span className="font-medium text-foreground">{kpis.wordsPerMinute}</span>
+                  <div className="flex justify-between items-center p-3 rounded-2xl bg-secondary/30">
+                    <span className="text-sm text-muted-foreground">Wörter/Min</span>
+                    <span className="font-semibold text-foreground">
+                      {duration > 0 ? Math.round(wordCount / duration) : 0}
+                    </span>
                   </div>
-                  <Separator />
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-muted-foreground">Verarbeitung</span>
-                    <span className="font-medium text-foreground">{kpis.completionRate}%</span>
+                  <div className="flex justify-between items-center p-3 rounded-2xl bg-secondary/30">
+                    <span className="text-sm text-muted-foreground">Status</span>
+                    <Badge className={`${getStatusColor(recording.status)} rounded-full`}>
+                      {getStatusLabel(recording.status)}
+                    </Badge>
                   </div>
                 </div>
               </CardContent>
