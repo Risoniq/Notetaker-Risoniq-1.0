@@ -130,6 +130,20 @@ export default function MeetingDetail() {
   const keyPointsCount = recording.key_points?.length || 0;
   const actionItemsCount = recording.action_items?.length || 0;
 
+  // Teilnehmer aus Transkript extrahieren
+  const extractParticipants = (transcript: string | null): string[] => {
+    if (!transcript) return [];
+    const speakerPattern = /^([^:]+):/gm;
+    const matches = transcript.match(speakerPattern);
+    if (!matches) return [];
+    const speakers = matches.map(m => m.replace(':', '').trim());
+    return [...new Set(speakers)].filter(s => s !== 'Unbekannt');
+  };
+  
+  const participants = extractParticipants(recording.transcript_text);
+  const participantCount = participants.length > 0 ? participants.length : 
+    (recording.transcript_text ? 1 : 0); // Mindestens 1 wenn Transkript vorhanden
+
   // KPIs berechnen
   const kpis = {
     wordsPerMinute: duration > 0 ? Math.round(wordCount / duration) : 0,
@@ -182,11 +196,11 @@ export default function MeetingDetail() {
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-lg bg-primary/10">
-                  <FileText className="h-5 w-5 text-primary" />
+                  <Users className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{wordCount.toLocaleString('de-DE')}</p>
-                  <p className="text-xs text-muted-foreground">Wörter</p>
+                  <p className="text-2xl font-bold text-foreground">{participantCount}</p>
+                  <p className="text-xs text-muted-foreground">Teilnehmer</p>
                 </div>
               </div>
             </CardContent>
