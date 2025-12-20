@@ -1,4 +1,4 @@
-import { ArrowLeft, Bell, Bot, Calendar, Globe, Mic, Shield, Volume2 } from "lucide-react";
+import { ArrowLeft, Bell, Bot, Calendar, Check, Globe, Loader2, Mic, Shield, Volume2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -7,8 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useGoogleCalendar } from "@/hooks/useGoogleCalendar";
+import { Badge } from "@/components/ui/badge";
 
 const Settings = () => {
+  const { status, events, connect, disconnect, error } = useGoogleCalendar();
+  const isConnected = status === 'connected';
+  const isConnecting = status === 'connecting';
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-4xl">
@@ -194,13 +200,41 @@ const Settings = () => {
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Google Kalender</Label>
-                  <p className="text-sm text-muted-foreground">Synchronisiere Meetings aus Google Kalender</p>
+                  <div className="flex items-center gap-2">
+                    <Label>Google Kalender</Label>
+                    {isConnected && (
+                      <Badge variant="secondary" className="bg-green-500/10 text-green-600 border-green-500/20">
+                        <Check className="h-3 w-3 mr-1" />
+                        Verbunden
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {isConnected 
+                      ? `${events.length} anstehende Meetings synchronisiert` 
+                      : 'Synchronisiere Meetings aus Google Kalender'}
+                  </p>
+                  {error && <p className="text-sm text-destructive">{error}</p>}
                 </div>
-                <Button variant="outline" size="sm">
-                  <Globe className="h-4 w-4 mr-2" />
-                  Verbinden
-                </Button>
+                {isConnected ? (
+                  <Button variant="outline" size="sm" onClick={disconnect}>
+                    Trennen
+                  </Button>
+                ) : (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={connect}
+                    disabled={isConnecting}
+                  >
+                    {isConnecting ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Globe className="h-4 w-4 mr-2" />
+                    )}
+                    {isConnecting ? 'Verbinden...' : 'Verbinden'}
+                  </Button>
+                )}
               </div>
               <Separator />
               <div className="flex items-center justify-between">
