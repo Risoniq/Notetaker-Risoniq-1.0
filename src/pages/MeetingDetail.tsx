@@ -286,7 +286,7 @@ export default function MeetingDetail() {
               {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
             </h1>
             <p className="text-muted-foreground mt-1">
-              Überblick über deine wichtigsten Kennzahlen
+              {format(new Date(recording.created_at), "EEEE, dd. MMMM yyyy 'um' HH:mm 'Uhr'", { locale: de })}
             </p>
           </div>
           <div className="flex items-center gap-3">
