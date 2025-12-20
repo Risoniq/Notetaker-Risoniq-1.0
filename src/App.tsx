@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import CalendarCallback from "./pages/CalendarCallback";
 import MeetingDetail from "./pages/MeetingDetail";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -19,6 +20,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/meeting/:id" element={<MeetingDetail />} />
+          <Route path="/settings" element={<Settings />} />
           <Route path="/calendar-callback" element={<CalendarCallback />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

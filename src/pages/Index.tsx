@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { MeetingBot } from "@/components/MeetingBot";
 import { RecordingViewer } from "@/components/RecordingViewer";
 import { RecordingsList } from "@/components/recordings/RecordingsList";
 import { Toaster } from "@/components/ui/toaster";
-import { Mic } from "lucide-react";
+import { Mic, Settings } from "lucide-react";
 
 const Index = () => {
   const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null);
@@ -17,6 +18,11 @@ const Index = () => {
             <div className="p-3 rounded-full bg-primary/10">
               <Mic className="h-8 w-8 text-primary" />
             </div>
+            <Link to="/settings">
+              <div className="p-3 rounded-full bg-primary/10 hover:bg-primary/20 transition-colors cursor-pointer">
+                <Settings className="h-8 w-8 text-primary" />
+              </div>
+            </Link>
           </div>
           <h1 className="text-4xl font-bold text-foreground mb-2">
             AI Meeting Recorder
