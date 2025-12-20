@@ -1,9 +1,33 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encode as base64Encode } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Funktion um ein Bild von einer URL zu laden und als Base64 zu konvertieren
+async function fetchImageAsBase64(imageUrl: string): Promise<string | null> {
+  try {
+    console.log(`[Image] Lade Bild von: ${imageUrl}`);
+    const response = await fetch(imageUrl);
+    
+    if (!response.ok) {
+      console.error(`[Image] Fehler beim Laden: ${response.status}`);
+      return null;
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    const base64String = base64Encode(uint8Array);
+    
+    console.log(`[Image] Bild erfolgreich geladen und konvertiert (${base64String.length} chars)`);
+    return base64String;
+  } catch (error) {
+    console.error(`[Image] Fehler beim Konvertieren:`, error);
+    return null;
+  }
+}
 
 Deno.serve(async (req) => {
   // CORS Preflight
@@ -35,14 +59,15 @@ Deno.serve(async (req) => {
       throw new Error("RECALL_API_KEY ist nicht gesetzt");
     }
 
+    const finalBotName = botName || "Notetaker Bot";
     console.log(`[Recall] Sende Bot zu: ${meetingUrl}`);
-    console.log(`[Recall] Bot Name: ${botName || "Notetaker Bot"}`);
-    console.log(`[Recall] Bot Avatar: ${botAvatarUrl || "nicht gesetzt"}`);
+    console.log(`[Recall] Bot Name: ${finalBotName}`);
+    console.log(`[Recall] Bot Avatar URL: ${botAvatarUrl || "nicht gesetzt"}`);
 
     // 4. Bot-Konfiguration erstellen
     const botConfig: Record<string, unknown> = {
       meeting_url: meetingUrl,
-      bot_name: botName || "Notetaker Bot",
+      bot_name: finalBotName,
       join_at: new Date().toISOString(),
       // Speaker Timeline für Sprecher-Identifikation aktivieren
       speaker_timeline: {
@@ -60,22 +85,28 @@ Deno.serve(async (req) => {
       }
     };
     
-    // Bot-Profilbild für alle Plattformen hinzufügen
+    // Bot-Profilbild als Video-Output setzen (funktioniert für Teams, Zoom, Meet)
     if (botAvatarUrl) {
-      // Generisches Bot-Bild
-      botConfig.bot_image = botAvatarUrl;
-      
-      // Teams-spezifische Konfiguration mit Profilbild
-      botConfig.teams = {
-        avatar_image_url: botAvatarUrl
-      };
-      
-      // Zoom-spezifische Konfiguration mit Profilbild
-      botConfig.zoom = {
-        user_avatar_url: botAvatarUrl
-      };
-      
-      console.log(`[Recall] Bot Avatar für alle Plattformen gesetzt: ${botAvatarUrl}`);
+      try {
+        const base64Image = await fetchImageAsBase64(botAvatarUrl);
+        
+        if (base64Image) {
+          // automatic_video_output zeigt das Bild als Bot-Video/Profilbild
+          botConfig.automatic_video_output = {
+            in_call_not_recording: {
+              kind: "jpeg",
+              b64_data: base64Image
+            },
+            in_call_recording: {
+              kind: "jpeg", 
+              b64_data: base64Image
+            }
+          };
+          console.log(`[Recall] Bot Avatar als Video-Output konfiguriert`);
+        }
+      } catch (imageError) {
+        console.error(`[Recall] Konnte Avatar nicht laden:`, imageError);
+      }
     }
 
     // 5. Bot bei Recall.ai erstellen
