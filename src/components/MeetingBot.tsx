@@ -1,10 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { Bot, Send, Loader2 } from "lucide-react";
+import { Bot, Send, Loader2, Settings } from "lucide-react";
 
 interface MeetingBotProps {
   onRecordingCreated: (recordingId: string) => void;
@@ -13,7 +16,16 @@ interface MeetingBotProps {
 export function MeetingBot({ onRecordingCreated }: MeetingBotProps) {
   const [meetingUrl, setMeetingUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [botAvatarUrl, setBotAvatarUrl] = useState<string | null>(null);
+  const [botName, setBotName] = useState("Notetaker Bot");
   const { toast } = useToast();
+
+  useEffect(() => {
+    const storedAvatar = localStorage.getItem('bot:avatarUrl');
+    const storedName = localStorage.getItem('bot:name');
+    if (storedAvatar) setBotAvatarUrl(storedAvatar);
+    if (storedName) setBotName(storedName);
+  }, []);
 
   const handleSendBot = async () => {
     if (!meetingUrl.trim()) {
@@ -64,10 +76,42 @@ export function MeetingBot({ onRecordingCreated }: MeetingBotProps) {
   return (
     <Card className="w-full max-w-xl">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Bot className="h-6 w-6 text-primary" />
-          Meeting Bot
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Bot className="h-6 w-6 text-primary" />
+            Meeting Bot
+          </CardTitle>
+          
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link 
+                  to="/settings" 
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/50 hover:bg-muted transition-colors group"
+                >
+                  <Avatar className="h-10 w-10 border-2 border-primary/20 group-hover:border-primary/40 transition-colors">
+                    {botAvatarUrl ? (
+                      <AvatarImage src={botAvatarUrl} alt={botName} />
+                    ) : null}
+                    <AvatarFallback className="bg-primary/10 text-primary">
+                      <Bot className="h-5 w-5" />
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium">{botName}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {botAvatarUrl ? "Profilbild aktiv" : "Kein Profilbild"}
+                    </span>
+                  </div>
+                  <Settings className="h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>In Einstellungen ändern</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex gap-3">
