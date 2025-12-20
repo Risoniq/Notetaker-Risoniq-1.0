@@ -1,0 +1,8 @@
+-- Add KPI columns to recordings table
+ALTER TABLE public.recordings
+ADD COLUMN IF NOT EXISTS title TEXT,
+ADD COLUMN IF NOT EXISTS duration INTEGER,
+ADD COLUMN IF NOT EXISTS summary TEXT,
+ADD COLUMN IF NOT EXISTS key_points TEXT[],
+ADD COLUMN IF NOT EXISTS action_items TEXT[],
+ADD COLUMN IF NOT EXISTS word_count INTEGER;

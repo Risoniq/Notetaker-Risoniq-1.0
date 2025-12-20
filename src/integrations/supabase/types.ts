@@ -16,40 +16,58 @@ export type Database = {
     Tables: {
       recordings: {
         Row: {
+          action_items: string[] | null
           created_at: string
+          duration: number | null
           id: string
+          key_points: string[] | null
           meeting_id: string
           meeting_url: string | null
           recall_bot_id: string | null
           status: string
+          summary: string | null
+          title: string | null
           transcript_text: string | null
           transcript_url: string | null
           updated_at: string
           video_url: string | null
+          word_count: number | null
         }
         Insert: {
+          action_items?: string[] | null
           created_at?: string
+          duration?: number | null
           id?: string
+          key_points?: string[] | null
           meeting_id: string
           meeting_url?: string | null
           recall_bot_id?: string | null
           status?: string
+          summary?: string | null
+          title?: string | null
           transcript_text?: string | null
           transcript_url?: string | null
           updated_at?: string
           video_url?: string | null
+          word_count?: number | null
         }
         Update: {
+          action_items?: string[] | null
           created_at?: string
+          duration?: number | null
           id?: string
+          key_points?: string[] | null
           meeting_id?: string
           meeting_url?: string | null
           recall_bot_id?: string | null
           status?: string
+          summary?: string | null
+          title?: string | null
           transcript_text?: string | null
           transcript_url?: string | null
           updated_at?: string
           video_url?: string | null
+          word_count?: number | null
         }
         Relationships: []
       }
