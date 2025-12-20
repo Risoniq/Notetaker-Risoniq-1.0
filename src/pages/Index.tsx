@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Mic } from "lucide-react";
 
 const Index = () => {
-  const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
+  const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null);
 
   return (
     <div className="min-h-screen bg-background">
@@ -27,10 +27,10 @@ const Index = () => {
 
         {/* Main Content */}
         <div className="flex flex-col items-center gap-8">
-          <MeetingBot onMeetingCreated={setActiveMeetingId} />
+          <MeetingBot onRecordingCreated={setActiveRecordingId} />
           
-          {activeMeetingId && (
-            <RecordingViewer meetingId={activeMeetingId} />
+          {activeRecordingId && (
+            <RecordingViewer recordingId={activeRecordingId} />
           )}
         </div>
       </div>
