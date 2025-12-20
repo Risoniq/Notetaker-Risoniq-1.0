@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.sync-recording]
 verify_jwt = false
+
+[functions.analyze-transcript]
+verify_jwt = false

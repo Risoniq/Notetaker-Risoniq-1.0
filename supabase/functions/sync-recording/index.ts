@@ -126,6 +126,29 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 7. Wenn fertig und Transkript vorhanden, automatisch Analyse starten
+    if (status === 'done' && updates.transcript_text) {
+      console.log('Starte automatische Transkript-Analyse...')
+      try {
+        const analyzeResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-transcript`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ recording_id: id }),
+        })
+        
+        if (analyzeResponse.ok) {
+          console.log('Analyse erfolgreich gestartet')
+        } else {
+          console.error('Analyse-Start fehlgeschlagen:', await analyzeResponse.text())
+        }
+      } catch (analyzeError) {
+        console.error('Fehler beim Starten der Analyse:', analyzeError)
+      }
+    }
+
     // 6. Datenbank aktualisieren
     const { error: updateError } = await supabase
       .from('recordings')
