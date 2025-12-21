@@ -439,30 +439,6 @@ export default function MeetingDetail() {
           </Card>
         </div>
 
-        {/* Date Banner */}
-        <div className="glass-card rounded-3xl p-6 mb-8 shadow-card animate-fade-in" style={{ animationDelay: '200ms' }}>
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-2xl bg-gradient-to-br from-primary/20 to-accent/20">
-              <Calendar className="h-8 w-8 text-primary" />
-            </div>
-            <div>
-              <p className="text-lg font-medium text-foreground">{formattedDate}</p>
-              <div className="flex items-center gap-4 text-muted-foreground text-sm mt-1">
-                {duration > 0 && (
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="h-4 w-4" />
-                    {duration} Minuten
-                  </span>
-                )}
-                <span className="flex items-center gap-1.5">
-                  <Users className="h-4 w-4" />
-                  {participantCount} Teilnehmer
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column - Content */}
