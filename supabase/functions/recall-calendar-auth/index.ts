@@ -288,6 +288,7 @@ serve(async (req) => {
           `scope=${encodeURIComponent(msScopes)}` +
           `&response_mode=query` +
           `&response_type=code` +
+          `&prompt=select_account` +
           `&state=${encodeURIComponent(JSON.stringify(stateObj))}` +
           `&redirect_uri=${encodeURIComponent(msRedirectUri)}` +
           `&client_id=${encodeURIComponent(msClientId)}`;
