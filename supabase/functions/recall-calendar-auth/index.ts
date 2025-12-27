@@ -21,36 +21,71 @@ serve(async (req) => {
       throw new Error('RECALL_API_KEY is not configured');
     }
 
-    const { action, user_id, provider, redirect_uri } = await req.json();
-    console.log('Calendar auth request:', { action, user_id, provider, redirect_uri });
+    const body = await req.json();
+    // Support both old (user_id) and new (supabase_user_id) parameters
+    const { action, supabase_user_id, user_id: legacyUserId, provider, redirect_uri } = body;
+    const supabaseUserId = supabase_user_id || null;
+    
+    console.log('Calendar auth request:', { action, supabase_user_id: supabaseUserId, provider, redirect_uri });
 
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
-    if (action === 'authenticate') {
-      // Generate a unique user_id if not provided
-      const recallUserId = user_id || crypto.randomUUID();
-      
-      // Create or update the calendar user in our database
+    // Helper function to get or create Recall user for a Supabase user
+    async function getOrCreateRecallUser(supabaseUserId: string): Promise<{ recallUserId: string; isNew: boolean }> {
+      // First, check if we already have a Recall user for this Supabase user
       const { data: existingUser, error: fetchError } = await supabase
         .from('recall_calendar_users')
-        .select('*')
-        .eq('recall_user_id', recallUserId)
+        .select('recall_user_id')
+        .eq('supabase_user_id', supabaseUserId)
         .maybeSingle();
 
       if (fetchError) {
-        console.error('Error fetching user:', fetchError);
+        console.error('Error fetching user by supabase_user_id:', fetchError);
       }
 
-      if (!existingUser) {
-        const { error: insertError } = await supabase
-          .from('recall_calendar_users')
-          .insert({ recall_user_id: recallUserId });
-        
-        if (insertError) {
-          console.error('Error inserting user:', insertError);
-          throw new Error('Failed to create calendar user');
-        }
+      if (existingUser?.recall_user_id) {
+        console.log('Found existing Recall user:', existingUser.recall_user_id);
+        return { recallUserId: existingUser.recall_user_id, isNew: false };
       }
+
+      // Create a new Recall user using the Supabase user ID as external_id
+      // This ensures consistent mapping
+      const recallUserId = supabaseUserId;
+      
+      const { error: insertError } = await supabase
+        .from('recall_calendar_users')
+        .insert({ 
+          recall_user_id: recallUserId,
+          supabase_user_id: supabaseUserId,
+        });
+      
+      if (insertError) {
+        // If insert fails due to duplicate, try to fetch again
+        if (insertError.code === '23505') {
+          const { data: retry } = await supabase
+            .from('recall_calendar_users')
+            .select('recall_user_id')
+            .eq('supabase_user_id', supabaseUserId)
+            .maybeSingle();
+          
+          if (retry?.recall_user_id) {
+            return { recallUserId: retry.recall_user_id, isNew: false };
+          }
+        }
+        console.error('Error inserting user:', insertError);
+        throw new Error('Failed to create calendar user');
+      }
+
+      console.log('Created new Recall user:', recallUserId);
+      return { recallUserId, isNew: true };
+    }
+
+    if (action === 'authenticate') {
+      if (!supabaseUserId) {
+        throw new Error('supabase_user_id is required for authentication');
+      }
+
+      const { recallUserId } = await getOrCreateRecallUser(supabaseUserId);
 
       // Get authentication token from Recall.ai
       const authResponse = await fetch('https://us-west-2.recall.ai/api/v1/calendar/authenticate/', {
@@ -73,10 +108,7 @@ serve(async (req) => {
       const authData = await authResponse.json();
       console.log('Recall auth response:', authData);
 
-      // Build the OAuth URL - redirect directly to Google/Microsoft
-      // The Recall.ai token is passed via the state parameter
-      // Recall.ai acts as the OAuth callback handler
-      
+      // Build the OAuth URL
       const recallRegion = 'us-west-2';
       let oauthUrl: string;
       
@@ -86,18 +118,15 @@ serve(async (req) => {
           throw new Error('MS_OAUTH_CLIENT_ID is not configured');
         }
 
-        // Microsoft OAuth URL structure
         const msScopes = 'offline_access openid email https://graph.microsoft.com/Calendars.Read';
         const msRedirectUri = `https://${recallRegion}.recall.ai/api/v1/calendar/ms_oauth_callback/`;
 
-        // Basic sanity check: Microsoft client IDs are typically GUIDs
         const looksLikeGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(msClientId);
         if (!looksLikeGuid) {
           console.error('MS_OAUTH_CLIENT_ID does not look like a GUID:', msClientId);
           throw new Error('Microsoft OAuth Client ID scheint ungültig zu sein (erwartet: Application (client) ID)');
         }
         
-        // Build state object with Recall.ai auth token and redirect URLs
         const stateObj = {
           recall_calendar_auth_token: authData.token,
           ms_oauth_redirect_url: msRedirectUri,
@@ -115,11 +144,9 @@ serve(async (req) => {
           
         console.log('Microsoft OAuth URL built with state:', stateObj);
       } else {
-        // Google OAuth URL structure
         const googleScopes = 'https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/userinfo.email';
         const googleRedirectUri = `https://${recallRegion}.recall.ai/api/v1/calendar/google_oauth_callback/`;
         
-        // Build state object with Recall.ai auth token and redirect URLs
         const stateObj = {
           recall_calendar_auth_token: authData.token,
           google_oauth_redirect_url: googleRedirectUri,
@@ -154,12 +181,37 @@ serve(async (req) => {
     }
 
     if (action === 'status') {
-      // Check connection status for a user
-      if (!user_id) {
-        throw new Error('user_id is required for status check');
+      if (!supabaseUserId) {
+        throw new Error('supabase_user_id is required for status check');
       }
 
-      // First, get a fresh auth token for this user
+      // Look up the Recall user ID for this Supabase user
+      const { data: calendarUser, error: fetchError } = await supabase
+        .from('recall_calendar_users')
+        .select('recall_user_id, google_connected, microsoft_connected')
+        .eq('supabase_user_id', supabaseUserId)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('Error fetching user:', fetchError);
+      }
+
+      if (!calendarUser?.recall_user_id) {
+        console.log('No Recall user found for Supabase user:', supabaseUserId);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            connected: false,
+            google_connected: false,
+            microsoft_connected: false,
+          }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const recallUserId = calendarUser.recall_user_id;
+
+      // Get a fresh auth token for this user
       const authResponse = await fetch('https://us-west-2.recall.ai/api/v1/calendar/authenticate/', {
         method: 'POST',
         headers: {
@@ -167,14 +219,13 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          user_id: user_id,
+          user_id: recallUserId,
         }),
       });
 
       if (!authResponse.ok) {
         const errorText = await authResponse.text();
         console.error('Recall auth token error:', authResponse.status, errorText);
-        // If we can't get a token, user probably doesn't exist yet
         return new Response(
           JSON.stringify({
             success: true,
@@ -189,9 +240,8 @@ serve(async (req) => {
       const authData = await authResponse.json();
       console.log('Got auth token for status check');
 
-      // Get user status from Recall.ai using the calendar auth token
-      // Some Recall endpoints accept the token in different header names; we send both for compatibility.
-      const userResponse = await fetch(`https://us-west-2.recall.ai/api/v1/calendar/user/?user_id=${user_id}`, {
+      // Get user status from Recall.ai
+      const userResponse = await fetch(`https://us-west-2.recall.ai/api/v1/calendar/user/?user_id=${recallUserId}`, {
         method: 'GET',
         headers: {
           'Authorization': `Token ${RECALL_API_KEY}`,
@@ -220,12 +270,10 @@ serve(async (req) => {
       const userData = await userResponse.json();
       console.log('Recall user data:', userData);
 
-      // Handle both old and new API response structures
       let googleConnected = false;
       let microsoftConnected = false;
       
       if (userData.connections && Array.isArray(userData.connections)) {
-        // New API structure with connections array
         for (const conn of userData.connections) {
           if (conn.platform === 'google' && conn.connected) {
             googleConnected = true;
@@ -235,7 +283,6 @@ serve(async (req) => {
           }
         }
       } else {
-        // Old API structure with google_calendar_id / microsoft_calendar_id
         googleConnected = userData.google_calendar_id !== null;
         microsoftConnected = userData.microsoft_calendar_id !== null;
       }
@@ -247,7 +294,7 @@ serve(async (req) => {
           google_connected: googleConnected,
           microsoft_connected: microsoftConnected,
         })
-        .eq('recall_user_id', user_id);
+        .eq('supabase_user_id', supabaseUserId);
 
       if (updateError) {
         console.error('Error updating user status:', updateError);
@@ -266,23 +313,20 @@ serve(async (req) => {
     }
 
     if (action === 'disconnect_provider') {
-      // Disconnect a single provider (Google or Microsoft)
-      if (!user_id || !provider) {
-        throw new Error('user_id and provider are required for disconnect_provider');
+      if (!supabaseUserId || !provider) {
+        throw new Error('supabase_user_id and provider are required for disconnect_provider');
       }
 
-      // Get user data from our database first
       const { data: userData, error: fetchError } = await supabase
         .from('recall_calendar_users')
-        .select('google_connected, microsoft_connected')
-        .eq('recall_user_id', user_id)
+        .select('recall_user_id, google_connected, microsoft_connected')
+        .eq('supabase_user_id', supabaseUserId)
         .maybeSingle();
 
       if (fetchError) {
         console.error('Error fetching user:', fetchError);
       }
 
-      // Update our database - only disconnect the specified provider
       const updateData = provider === 'google' 
         ? { google_connected: false }
         : { microsoft_connected: false };
@@ -290,13 +334,12 @@ serve(async (req) => {
       const { error: updateError } = await supabase
         .from('recall_calendar_users')
         .update(updateData)
-        .eq('recall_user_id', user_id);
+        .eq('supabase_user_id', supabaseUserId);
 
       if (updateError) {
         console.error('Error updating user after disconnect:', updateError);
       }
 
-      // Check if still connected to any provider
       const stillConnected = provider === 'google' 
         ? userData?.microsoft_connected 
         : userData?.google_connected;
@@ -312,48 +355,53 @@ serve(async (req) => {
     }
 
     if (action === 'disconnect') {
-      if (!user_id) {
-        throw new Error('user_id is required for disconnect');
+      if (!supabaseUserId) {
+        throw new Error('supabase_user_id is required for disconnect');
       }
 
-      // First get a token for this user
-      const authResponse = await fetch('https://us-west-2.recall.ai/api/v1/calendar/authenticate/', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Token ${RECALL_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: user_id,
-        }),
-      });
+      const { data: calendarUser } = await supabase
+        .from('recall_calendar_users')
+        .select('recall_user_id')
+        .eq('supabase_user_id', supabaseUserId)
+        .maybeSingle();
 
-      if (authResponse.ok) {
-        const authData = await authResponse.json();
-        
-        // Disconnect from Recall.ai using the calendar auth token
-        const disconnectResponse = await fetch(`https://us-west-2.recall.ai/api/v1/calendar/user/?user_id=${user_id}`, {
-          method: 'DELETE',
+      if (calendarUser?.recall_user_id) {
+        const authResponse = await fetch('https://us-west-2.recall.ai/api/v1/calendar/authenticate/', {
+          method: 'POST',
           headers: {
             'Authorization': `Token ${RECALL_API_KEY}`,
-            'x-recallcalendarauthtoken': authData.token,
+            'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            user_id: calendarUser.recall_user_id,
+          }),
         });
 
-        if (!disconnectResponse.ok && disconnectResponse.status !== 404) {
-          const errorText = await disconnectResponse.text();
-          console.error('Recall disconnect error:', disconnectResponse.status, errorText);
+        if (authResponse.ok) {
+          const authData = await authResponse.json();
+          
+          const disconnectResponse = await fetch(`https://us-west-2.recall.ai/api/v1/calendar/user/?user_id=${calendarUser.recall_user_id}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Token ${RECALL_API_KEY}`,
+              'x-recallcalendarauthtoken': authData.token,
+            },
+          });
+
+          if (!disconnectResponse.ok && disconnectResponse.status !== 404) {
+            const errorText = await disconnectResponse.text();
+            console.error('Recall disconnect error:', disconnectResponse.status, errorText);
+          }
         }
       }
 
-      // Update our database
       const { error: updateError } = await supabase
         .from('recall_calendar_users')
         .update({
           google_connected: false,
           microsoft_connected: false,
         })
-        .eq('recall_user_id', user_id);
+        .eq('supabase_user_id', supabaseUserId);
 
       if (updateError) {
         console.error('Error updating user after disconnect:', updateError);

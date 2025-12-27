@@ -21,24 +21,53 @@ serve(async (req) => {
       throw new Error('RECALL_API_KEY is not configured');
     }
 
-    const { action, user_id, meeting_id, auto_record } = await req.json();
-    console.log('Calendar meetings request:', { action, user_id, meeting_id, auto_record });
+    const body = await req.json();
+    // Support both old (user_id) and new (supabase_user_id) parameters
+    const { action, supabase_user_id, user_id: legacyUserId, meeting_id, auto_record } = body;
+    const supabaseUserId = supabase_user_id || null;
+    
+    console.log('Calendar meetings request:', { action, supabase_user_id: supabaseUserId, meeting_id, auto_record });
 
     const supabase = createClient(SUPABASE_URL!, SUPABASE_SERVICE_ROLE_KEY!);
 
-    if (action === 'list') {
-      if (!user_id) {
-        throw new Error('user_id is required');
+    // Helper function to get Recall user ID from Supabase user ID
+    async function getRecallUserId(supabaseUserId: string): Promise<string | null> {
+      const { data, error } = await supabase
+        .from('recall_calendar_users')
+        .select('recall_user_id')
+        .eq('supabase_user_id', supabaseUserId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching recall user:', error);
+        return null;
       }
 
-      // First, get a fresh calendar auth token for this user
+      return data?.recall_user_id || null;
+    }
+
+    if (action === 'list') {
+      if (!supabaseUserId) {
+        throw new Error('supabase_user_id is required');
+      }
+
+      const recallUserId = await getRecallUserId(supabaseUserId);
+      if (!recallUserId) {
+        console.log('No Recall user found for Supabase user:', supabaseUserId);
+        return new Response(
+          JSON.stringify({ success: true, meetings: [] }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Get a fresh calendar auth token for this user
       const authResponse = await fetch('https://us-west-2.recall.ai/api/v1/calendar/authenticate/', {
         method: 'POST',
         headers: {
           'Authorization': `Token ${RECALL_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ user_id }),
+        body: JSON.stringify({ user_id: recallUserId }),
       });
 
       if (!authResponse.ok) {
@@ -49,9 +78,9 @@ serve(async (req) => {
 
       const authData = await authResponse.json();
 
-      // Get upcoming meetings from Recall.ai (requires calendar auth token)
+      // Get upcoming meetings from Recall.ai
       const meetingsResponse = await fetch(
-        `https://us-west-2.recall.ai/api/v1/calendar/meetings/?user_id=${user_id}&start_time__gte=${new Date().toISOString()}`,
+        `https://us-west-2.recall.ai/api/v1/calendar/meetings/?user_id=${recallUserId}&start_time__gte=${new Date().toISOString()}`,
         {
           method: 'GET',
           headers: {
@@ -71,7 +100,6 @@ serve(async (req) => {
       const meetingsData = await meetingsResponse.json();
       console.log('Recall meetings:', meetingsData);
 
-      // Transform meetings to our format
       const meetings = (meetingsData.results || []).map((meeting: any) => ({
         id: meeting.id,
         title: meeting.title || 'Untitled Meeting',
@@ -94,18 +122,22 @@ serve(async (req) => {
     }
 
     if (action === 'update_recording') {
-      if (!user_id || !meeting_id) {
-        throw new Error('user_id and meeting_id are required');
+      if (!supabaseUserId || !meeting_id) {
+        throw new Error('supabase_user_id and meeting_id are required');
       }
 
-      // First, get a fresh calendar auth token for this user
+      const recallUserId = await getRecallUserId(supabaseUserId);
+      if (!recallUserId) {
+        throw new Error('No Recall user found');
+      }
+
       const authResponse = await fetch('https://us-west-2.recall.ai/api/v1/calendar/authenticate/', {
         method: 'POST',
         headers: {
           'Authorization': `Token ${RECALL_API_KEY}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ user_id }),
+        body: JSON.stringify({ user_id: recallUserId }),
       });
 
       if (!authResponse.ok) {
@@ -116,7 +148,6 @@ serve(async (req) => {
 
       const authData = await authResponse.json();
 
-      // Update recording preference for a specific meeting
       const updateResponse = await fetch(
         `https://us-west-2.recall.ai/api/v1/calendar/meetings/${meeting_id}/`,
         {
@@ -148,15 +179,14 @@ serve(async (req) => {
     }
 
     if (action === 'update_preferences') {
-      if (!user_id) {
-        throw new Error('user_id is required');
+      if (!supabaseUserId) {
+        throw new Error('supabase_user_id is required');
       }
 
-      // Get the current user from our database
       const { data: userData, error: userError } = await supabase
         .from('recall_calendar_users')
         .select('*')
-        .eq('recall_user_id', user_id)
+        .eq('supabase_user_id', supabaseUserId)
         .maybeSingle();
 
       if (userError) {
@@ -164,15 +194,13 @@ serve(async (req) => {
         throw new Error('Failed to fetch user');
       }
 
-      // Merge with existing preferences
       const currentPrefs = userData?.recording_preferences || {};
       const newPrefs = { ...currentPrefs, ...auto_record };
 
-      // Update preferences in our database
       const { error: updateError } = await supabase
         .from('recall_calendar_users')
         .update({ recording_preferences: newPrefs })
-        .eq('recall_user_id', user_id);
+        .eq('supabase_user_id', supabaseUserId);
 
       if (updateError) {
         console.error('Error updating preferences:', updateError);

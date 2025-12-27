@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import type { User } from '@supabase/supabase-js';
 
 export interface RecallMeeting {
   id: string;
@@ -26,15 +27,13 @@ export interface RecordingPreferences {
 
 export type CalendarStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
-const RECALL_USER_ID_KEY = 'recall_calendar_user_id';
-
 export function useRecallCalendar() {
   const [status, setStatus] = useState<CalendarStatus>('disconnected');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [meetingsError, setMeetingsError] = useState<string | null>(null);
   const [meetings, setMeetings] = useState<RecallMeeting[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [authUser, setAuthUser] = useState<User | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
   const [microsoftConnected, setMicrosoftConnected] = useState(false);
   const [preferences, setPreferences] = useState<RecordingPreferences>({
@@ -44,28 +43,35 @@ export function useRecallCalendar() {
     auto_record: true,
   });
 
-  // Load user ID from localStorage
+  // Get authenticated user from Supabase
   useEffect(() => {
-    const storedUserId = localStorage.getItem(RECALL_USER_ID_KEY);
-    if (storedUserId) {
-      setUserId(storedUserId);
-    }
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setAuthUser(user);
+    };
+    getUser();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  // Check connection status when user ID is available
+  // Check connection status when authenticated user is available
   useEffect(() => {
-    if (userId) {
+    if (authUser?.id) {
       checkStatus();
     }
-  }, [userId]);
+  }, [authUser?.id]);
 
   const checkStatus = useCallback(async () => {
-    if (!userId) return;
+    if (!authUser?.id) return;
 
     try {
       setIsLoading(true);
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: { action: 'status', user_id: userId },
+        body: { action: 'status', supabase_user_id: authUser.id },
       });
 
       if (funcError) throw funcError;
@@ -89,7 +95,7 @@ export function useRecallCalendar() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [authUser?.id]);
 
   // Check for OAuth callback on mount (for redirect flow)
   useEffect(() => {
@@ -107,13 +113,9 @@ export function useRecallCalendar() {
       toast.success(`${provider === 'microsoft' ? 'Microsoft' : 'Google'} Kalender erfolgreich verbunden!`);
       
       // Check status immediately - the OAuth should be complete now
-      console.log('[useRecallCalendar] OAuth complete, checking status for user:', userId);
+      console.log('[useRecallCalendar] OAuth complete, checking status for user:', authUser?.id);
       
-      // Use stored userId if current one not yet loaded
-      const storedUserId = localStorage.getItem(RECALL_USER_ID_KEY);
-      const effectiveUserId = userId || storedUserId;
-      
-      if (effectiveUserId) {
+      if (authUser?.id) {
         // Delay slightly to ensure Recall.ai has processed the OAuth
         setTimeout(async () => {
           console.log('[useRecallCalendar] Checking status after OAuth...');
@@ -129,9 +131,14 @@ export function useRecallCalendar() {
       
       toast.error('Kalender-Verbindung fehlgeschlagen. Bitte versuche es erneut.');
     }
-  }, [userId, checkStatus]);
+  }, [authUser?.id, checkStatus]);
 
   const connect = useCallback(async (provider: 'google' | 'microsoft' = 'google') => {
+    if (!authUser?.id) {
+      toast.error('Du musst angemeldet sein, um deinen Kalender zu verbinden.');
+      return;
+    }
+
     try {
       setIsLoading(true);
       setStatus('connecting');
@@ -141,16 +148,17 @@ export function useRecallCalendar() {
       const redirectUri = `${window.location.origin}/calendar-callback`;
 
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: { action: 'authenticate', user_id: userId, provider, redirect_uri: redirectUri },
+        body: { 
+          action: 'authenticate', 
+          supabase_user_id: authUser.id,
+          provider, 
+          redirect_uri: redirectUri 
+        },
       });
 
       if (funcError) throw funcError;
 
       if (data.success && data.oauth_url) {
-        // Store the user ID before redirect/popup
-        localStorage.setItem(RECALL_USER_ID_KEY, data.user_id);
-        setUserId(data.user_id);
-
         // For Microsoft: Use redirect flow (popups are often blocked)
         if (provider === 'microsoft') {
           // Store that we're in the middle of connecting
@@ -204,15 +212,15 @@ export function useRecallCalendar() {
       setStatus('error');
       setIsLoading(false);
     }
-  }, [userId, checkStatus, googleConnected, microsoftConnected]);
+  }, [authUser?.id, checkStatus, googleConnected, microsoftConnected]);
 
   const disconnectProvider = useCallback(async (provider: 'google' | 'microsoft') => {
-    if (!userId) return;
+    if (!authUser?.id) return;
 
     try {
       setIsLoading(true);
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: { action: 'disconnect_provider', user_id: userId, provider },
+        body: { action: 'disconnect_provider', supabase_user_id: authUser.id, provider },
       });
 
       if (funcError) throw funcError;
@@ -226,8 +234,6 @@ export function useRecallCalendar() {
         
         // Check if still connected to any provider
         if (!data.still_connected) {
-          localStorage.removeItem(RECALL_USER_ID_KEY);
-          setUserId(null);
           setStatus('disconnected');
           setMeetings([]);
         }
@@ -240,19 +246,19 @@ export function useRecallCalendar() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [authUser?.id]);
 
   const disconnectGoogle = useCallback(() => disconnectProvider('google'), [disconnectProvider]);
   const disconnectMicrosoft = useCallback(() => disconnectProvider('microsoft'), [disconnectProvider]);
 
   const fetchMeetings = useCallback(async () => {
-    if (!userId) return;
+    if (!authUser?.id) return;
 
     try {
       setIsLoading(true);
       setMeetingsError(null);
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
-        body: { action: 'list', user_id: userId },
+        body: { action: 'list', supabase_user_id: authUser.id },
       });
 
       if (funcError) throw funcError;
@@ -289,16 +295,16 @@ export function useRecallCalendar() {
     } finally {
       setIsLoading(false);
     }
-  }, [userId]);
+  }, [authUser?.id]);
 
   const updateMeetingRecording = useCallback(async (meetingId: string, shouldRecord: boolean) => {
-    if (!userId) return;
+    if (!authUser?.id) return;
 
     try {
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
         body: { 
           action: 'update_recording', 
-          user_id: userId, 
+          supabase_user_id: authUser.id, 
           meeting_id: meetingId,
           auto_record: shouldRecord,
         },
@@ -321,16 +327,16 @@ export function useRecallCalendar() {
       console.error('Error updating meeting:', err);
       toast.error('Fehler beim Aktualisieren des Meetings');
     }
-  }, [userId]);
+  }, [authUser?.id]);
 
   const updatePreferences = useCallback(async (newPrefs: Partial<RecordingPreferences>) => {
-    if (!userId) return;
+    if (!authUser?.id) return;
 
     try {
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
         body: { 
           action: 'update_preferences', 
-          user_id: userId, 
+          supabase_user_id: authUser.id, 
           auto_record: newPrefs,
         },
       });
@@ -345,7 +351,7 @@ export function useRecallCalendar() {
       console.error('Error updating preferences:', err);
       toast.error('Fehler beim Speichern der Einstellungen');
     }
-  }, [userId]);
+  }, [authUser?.id]);
 
   return {
     status,
@@ -353,7 +359,7 @@ export function useRecallCalendar() {
     error,
     meetingsError,
     meetings,
-    userId,
+    userId: authUser?.id || null,
     googleConnected,
     microsoftConnected,
     preferences,
