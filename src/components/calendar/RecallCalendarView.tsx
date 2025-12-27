@@ -12,6 +12,7 @@ export const RecallCalendarView = ({ onStartRecording }: RecallCalendarViewProps
     status,
     isLoading,
     error,
+    meetingsError,
     meetings,
     googleConnected,
     microsoftConnected,
@@ -57,8 +58,10 @@ export const RecallCalendarView = ({ onStartRecording }: RecallCalendarViewProps
             <RecallUpcomingMeetings
               meetings={meetings}
               isLoading={isLoading}
+              meetingsError={meetingsError}
               onToggleRecording={updateMeetingRecording}
               onJoinMeeting={handleJoinMeeting}
+              onRetry={fetchMeetings}
             />
           </div>
         </>
