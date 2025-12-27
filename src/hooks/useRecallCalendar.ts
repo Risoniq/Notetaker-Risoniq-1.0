@@ -208,12 +208,34 @@ export function useRecallCalendar() {
       if (funcError) throw funcError;
 
       if (data.success && data.oauth_url) {
-        // For Microsoft: Use redirect flow (popups are often blocked)
+        // For Microsoft: Open in new tab to avoid iframe restrictions
         if (provider === 'microsoft') {
-          // Store that we're in the middle of connecting
           sessionStorage.setItem('recall_oauth_provider', 'microsoft');
-          // Redirect to OAuth URL
-          window.location.href = data.oauth_url;
+          
+          // Open in new tab instead of redirect (avoids iframe restrictions)
+          const newTab = window.open(data.oauth_url, '_blank');
+          
+          if (!newTab) {
+            // Fallback: Try direct redirect if popup is blocked
+            toast.info('Popup wurde blockiert, leite weiter...');
+            window.location.href = data.oauth_url;
+            return;
+          }
+          
+          toast.info('Microsoft Login wird in einem neuen Tab geöffnet...');
+          setIsLoading(false);
+          setStatus('disconnected');
+          
+          // Poll for status updates after new tab is opened
+          const pollForConnection = setInterval(async () => {
+            await checkStatus();
+          }, 3000);
+          
+          // Stop polling after 5 minutes
+          setTimeout(() => {
+            clearInterval(pollForConnection);
+          }, 300000);
+          
           return;
         }
 
