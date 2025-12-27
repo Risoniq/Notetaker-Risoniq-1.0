@@ -182,7 +182,7 @@ export const RecallCalendarConnection = ({
           <div className="flex items-center gap-2">
             <RefreshCw size={16} className="text-blue-500 animate-spin" />
             <p className="text-sm text-blue-600 dark:text-blue-400">
-              Warte auf Anmeldung... Schließe den Tab nach dem Login.
+              Warte auf Anmeldung... Schließe das Fenster nach dem Login.
             </p>
           </div>
           <Button 
