@@ -12,6 +12,7 @@ interface RecallCalendarConnectionProps {
   onDisconnectGoogle: () => void;
   onDisconnectMicrosoft: () => void;
   onRefresh: () => void;
+  onCheckStatus: () => void;
   onRepair?: (targetId: string) => Promise<boolean>;
   isLoading: boolean;
   needsRepair?: boolean;
@@ -136,6 +137,7 @@ export const RecallCalendarConnection = ({
   onDisconnectGoogle,
   onDisconnectMicrosoft,
   onRefresh,
+  onCheckStatus,
   onRepair,
   isLoading,
   needsRepair,
@@ -173,6 +175,26 @@ export const RecallCalendarConnection = ({
         onDisconnect={onDisconnectMicrosoft}
         onRefresh={onRefresh}
       />
+
+      {/* Show manual check button when connecting (polling in progress) */}
+      {isConnecting && (
+        <div className="p-3 bg-blue-500/10 rounded-lg flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw size={16} className="text-blue-500 animate-spin" />
+            <p className="text-sm text-blue-600 dark:text-blue-400">
+              Warte auf Anmeldung... Schließe den Tab nach dem Login.
+            </p>
+          </div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={onCheckStatus}
+            disabled={isLoading}
+          >
+            Status prüfen
+          </Button>
+        </div>
+      )}
 
       {/* Repair hint - only show if repair is possible */}
       {needsRepair && onRepair && recallUserId && (
