@@ -22,6 +22,7 @@ export const RecallCalendarView = ({ onStartRecording }: RecallCalendarViewProps
     connect,
     disconnectGoogle,
     disconnectMicrosoft,
+    checkStatus,
     fetchMeetings,
     updateMeetingRecording,
     updatePreferences,
@@ -46,6 +47,7 @@ export const RecallCalendarView = ({ onStartRecording }: RecallCalendarViewProps
         onDisconnectGoogle={disconnectGoogle}
         onDisconnectMicrosoft={disconnectMicrosoft}
         onRefresh={fetchMeetings}
+        onCheckStatus={checkStatus}
         onRepair={repairConnection}
         isLoading={isLoading}
         needsRepair={needsRepair}

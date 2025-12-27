@@ -222,19 +222,47 @@ export function useRecallCalendar() {
             return;
           }
           
-          toast.info('Microsoft Login wird in einem neuen Tab geöffnet...');
+          // Show helpful message with longer duration
+          toast.info(
+            'Microsoft Login geöffnet. Schließe den Tab nach der Anmeldung - die Verbindung wird automatisch erkannt.',
+            { duration: 15000 }
+          );
+          
           setIsLoading(false);
-          setStatus('disconnected');
+          setStatus('connecting');
           
-          // Poll for status updates after new tab is opened
+          // Enhanced polling - check every 2 seconds for up to 5 minutes
+          let pollCount = 0;
+          const maxPolls = 150; // 5 minutes at 2 second intervals
+          
           const pollForConnection = setInterval(async () => {
-            await checkStatus();
-          }, 3000);
-          
-          // Stop polling after 5 minutes
-          setTimeout(() => {
-            clearInterval(pollForConnection);
-          }, 300000);
+            pollCount++;
+            
+            try {
+              const { data: statusData } = await supabase.functions.invoke('recall-calendar-auth', {
+                body: { 
+                  action: 'status', 
+                  supabase_user_id: authUser.id,
+                  user_email: authUser.email 
+                },
+              });
+              
+              if (statusData?.microsoft_connected) {
+                clearInterval(pollForConnection);
+                setMicrosoftConnected(true);
+                setStatus('connected');
+                toast.success('Microsoft Kalender erfolgreich verbunden!');
+                await fetchMeetings();
+              }
+            } catch (err) {
+              console.error('Polling error:', err);
+            }
+            
+            if (pollCount >= maxPolls) {
+              clearInterval(pollForConnection);
+              setStatus('disconnected');
+            }
+          }, 2000);
           
           return;
         }
