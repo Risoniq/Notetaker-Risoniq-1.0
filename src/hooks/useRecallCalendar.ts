@@ -32,6 +32,7 @@ export function useRecallCalendar() {
   const [status, setStatus] = useState<CalendarStatus>('disconnected');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [meetingsError, setMeetingsError] = useState<string | null>(null);
   const [meetings, setMeetings] = useState<RecallMeeting[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [googleConnected, setGoogleConnected] = useState(false);
@@ -180,6 +181,7 @@ export function useRecallCalendar() {
 
     try {
       setIsLoading(true);
+      setMeetingsError(null);
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
         body: { action: 'list', user_id: userId },
       });
@@ -188,10 +190,33 @@ export function useRecallCalendar() {
 
       if (data.success) {
         setMeetings(data.meetings || []);
+        setMeetingsError(null);
+      } else {
+        // Translate error to user-friendly message
+        const errorMsg = data.error || '';
+        let friendlyError = 'Meetings konnten nicht geladen werden.';
+        
+        if (errorMsg.includes('not_authenticated') || errorMsg.includes('credentials')) {
+          friendlyError = 'Die Kalender-Verbindung muss möglicherweise erneuert werden.';
+        } else if (errorMsg.includes('network') || errorMsg.includes('fetch')) {
+          friendlyError = 'Verbindung zum Server fehlgeschlagen.';
+        }
+        
+        setMeetingsError(friendlyError);
       }
     } catch (err: any) {
       console.error('Error fetching meetings:', err);
-      setError(err.message || 'Fehler beim Laden der Meetings');
+      // Translate error to user-friendly message
+      const errorMsg = err.message || '';
+      let friendlyError = 'Meetings konnten nicht geladen werden.';
+      
+      if (errorMsg.includes('not_authenticated') || errorMsg.includes('credentials')) {
+        friendlyError = 'Die Kalender-Verbindung muss möglicherweise erneuert werden.';
+      } else if (errorMsg.includes('network') || errorMsg.includes('fetch') || errorMsg.includes('Failed to fetch')) {
+        friendlyError = 'Verbindung zum Server fehlgeschlagen.';
+      }
+      
+      setMeetingsError(friendlyError);
     } finally {
       setIsLoading(false);
     }
@@ -257,6 +282,7 @@ export function useRecallCalendar() {
     status,
     isLoading,
     error,
+    meetingsError,
     meetings,
     userId,
     googleConnected,

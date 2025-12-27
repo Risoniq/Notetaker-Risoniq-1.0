@@ -1,5 +1,5 @@
 import { RecallMeeting } from '@/hooks/useRecallCalendar';
-import { Video, Clock, Users, Bot, BotOff } from 'lucide-react';
+import { Video, Clock, Users, Bot, BotOff, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { format, formatDistanceToNow, isToday, isTomorrow, differenceInMinutes } from 'date-fns';
@@ -8,15 +8,19 @@ import { de } from 'date-fns/locale';
 interface RecallUpcomingMeetingsProps {
   meetings: RecallMeeting[];
   isLoading: boolean;
+  meetingsError?: string | null;
   onToggleRecording: (meetingId: string, shouldRecord: boolean) => void;
   onJoinMeeting: (meeting: RecallMeeting) => void;
+  onRetry?: () => void;
 }
 
 export const RecallUpcomingMeetings = ({ 
   meetings, 
   isLoading, 
+  meetingsError,
   onToggleRecording,
   onJoinMeeting,
+  onRetry,
 }: RecallUpcomingMeetingsProps) => {
   if (isLoading) {
     return (
@@ -27,6 +31,37 @@ export const RecallUpcomingMeetings = ({
             <div className="h-4 bg-muted rounded w-1/2" />
           </div>
         ))}
+      </div>
+    );
+  }
+
+  // Show error state with retry button
+  if (meetingsError && meetings.length === 0) {
+    return (
+      <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl p-6 text-center">
+        <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/50 rounded-full flex items-center justify-center mx-auto mb-3">
+          <AlertTriangle size={24} className="text-amber-600 dark:text-amber-400" />
+        </div>
+        <h3 className="font-medium text-amber-800 dark:text-amber-200 mb-2">
+          Meetings konnten nicht geladen werden
+        </h3>
+        <p className="text-sm text-amber-700 dark:text-amber-300 mb-4">
+          {meetingsError}
+        </p>
+        {onRetry && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onRetry}
+            className="border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50"
+          >
+            <RefreshCw size={14} className="mr-2" />
+            Erneut laden
+          </Button>
+        )}
+        <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-4">
+          Der Bot zeichnet weiterhin automatisch auf – nur die Vorschau ist betroffen.
+        </p>
       </div>
     );
   }
