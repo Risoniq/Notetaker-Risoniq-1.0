@@ -162,8 +162,25 @@ serve(async (req) => {
       const userData = await userResponse.json();
       console.log('Recall user data:', userData);
 
-      const googleConnected = userData.google_calendar_id !== null;
-      const microsoftConnected = userData.microsoft_calendar_id !== null;
+      // Handle both old and new API response structures
+      let googleConnected = false;
+      let microsoftConnected = false;
+      
+      if (userData.connections && Array.isArray(userData.connections)) {
+        // New API structure with connections array
+        for (const conn of userData.connections) {
+          if (conn.platform === 'google' && conn.connected) {
+            googleConnected = true;
+          }
+          if (conn.platform === 'microsoft' && conn.connected) {
+            microsoftConnected = true;
+          }
+        }
+      } else {
+        // Old API structure with google_calendar_id / microsoft_calendar_id
+        googleConnected = userData.google_calendar_id !== null;
+        microsoftConnected = userData.microsoft_calendar_id !== null;
+      }
 
       // Update our database
       const { error: updateError } = await supabase
