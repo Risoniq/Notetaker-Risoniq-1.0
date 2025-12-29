@@ -187,12 +187,14 @@ Deno.serve(async (req) => {
         console.log('Keine Video-URL in media_shortcuts gefunden')
       }
       
-      // Teilnehmer von Recall.ai abrufen
+      // Teilnehmer von Recall.ai abrufen - zuerst Bot-Info für meeting_participants
       let participantMap: Record<string, string> = {}
       let participantsList: { id: string; name: string }[] = []
       
       try {
-        const participantsResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}/speaker_timeline`, {
+        // Erst meeting_participants vom Bot-Endpoint holen (enthält echte Namen)
+        console.log('Hole Meeting-Teilnehmer von Bot-Endpoint...')
+        const botInfoResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}`, {
           method: 'GET',
           headers: {
             'Authorization': `Token ${recallApiKey}`,
@@ -200,54 +202,63 @@ Deno.serve(async (req) => {
           },
         })
         
-        if (participantsResponse.ok) {
-          const speakerTimeline = await participantsResponse.json()
-          console.log('Speaker Timeline:', JSON.stringify(speakerTimeline, null, 2))
+        if (botInfoResponse.ok) {
+          const botInfo = await botInfoResponse.json()
+          console.log('Bot meeting_participants:', JSON.stringify(botInfo.meeting_participants, null, 2))
           
-          // Extrahiere unique Sprecher aus der Timeline
-          if (Array.isArray(speakerTimeline)) {
-            const uniqueSpeakers = new Map<number, string>()
-            speakerTimeline.forEach((entry: { user?: { name?: string; id?: number } }) => {
-              if (entry.user?.id !== undefined) {
-                const speakerId = entry.user.id
-                const speakerName = entry.user.name || `Sprecher ${speakerId + 1}`
-                uniqueSpeakers.set(speakerId, speakerName)
-              }
+          // Extrahiere Teilnehmer mit echten Namen
+          if (botInfo.meeting_participants && Array.isArray(botInfo.meeting_participants)) {
+            botInfo.meeting_participants.forEach((p: { id?: number; name?: string; platform_user_id?: string }, index: number) => {
+              const id = p.id !== undefined ? String(p.id) : String(index)
+              // Verwende den echten Namen, falls vorhanden
+              const name = p.name && p.name.trim() !== '' ? p.name : `Teilnehmer ${index + 1}`
+              participantMap[id] = name
+              participantsList.push({ id, name })
+              console.log(`Teilnehmer gemappt: ID ${id} -> "${name}"`)
             })
-            
-            // Konvertiere zu Map für einfachen Lookup
-            uniqueSpeakers.forEach((name, id) => {
-              participantMap[String(id)] = name
-              participantsList.push({ id: String(id), name })
-            })
-            
-            console.log('Teilnehmer-Map:', participantMap)
-          }
-        } else {
-          console.log('Speaker Timeline nicht verfügbar, versuche Participants Endpoint...')
-          
-          // Fallback: Versuche den participants Endpoint
-          const fallbackResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}`, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Token ${recallApiKey}`,
-              'Content-Type': 'application/json',
-            },
-          })
-          
-          if (fallbackResponse.ok) {
-            const botInfo = await fallbackResponse.json()
-            if (botInfo.meeting_participants && Array.isArray(botInfo.meeting_participants)) {
-              botInfo.meeting_participants.forEach((p: { id?: number; name?: string }, index: number) => {
-                const id = p.id !== undefined ? String(p.id) : String(index)
-                const name = p.name || `Sprecher ${index + 1}`
-                participantMap[id] = name
-                participantsList.push({ id, name })
-              })
-              console.log('Teilnehmer von meeting_participants:', participantMap)
-            }
           }
         }
+        
+        // Zusätzlich speaker_timeline holen um Speaker-IDs zu Namen zu mappen
+        const speakerTimelineResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}/speaker_timeline`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Token ${recallApiKey}`,
+            'Content-Type': 'application/json',
+          },
+        })
+        
+        if (speakerTimelineResponse.ok) {
+          const speakerTimeline = await speakerTimelineResponse.json()
+          console.log('Speaker Timeline Sample:', JSON.stringify(speakerTimeline?.slice?.(0, 3), null, 2))
+          
+          // Ergänze Mapping mit Daten aus speaker_timeline
+          if (Array.isArray(speakerTimeline)) {
+            speakerTimeline.forEach((entry: { user?: { name?: string; id?: number } }) => {
+              if (entry.user?.id !== undefined) {
+                const speakerId = String(entry.user.id)
+                // Nur überschreiben wenn wir noch keinen echten Namen haben
+                if (!participantMap[speakerId] || participantMap[speakerId].startsWith('Teilnehmer ')) {
+                  if (entry.user.name && entry.user.name.trim() !== '') {
+                    participantMap[speakerId] = entry.user.name
+                    // Aktualisiere auch die Liste
+                    const existingIndex = participantsList.findIndex(p => p.id === speakerId)
+                    if (existingIndex >= 0) {
+                      participantsList[existingIndex].name = entry.user.name
+                    } else {
+                      participantsList.push({ id: speakerId, name: entry.user.name })
+                    }
+                    console.log(`Speaker Timeline Update: ID ${speakerId} -> "${entry.user.name}"`)
+                  }
+                }
+              }
+            })
+          }
+        }
+        
+        console.log('Finale Teilnehmer-Map:', participantMap)
+        console.log('Finale Teilnehmer-Liste:', participantsList)
+        
       } catch (participantError) {
         console.error('Teilnehmer-Abruf fehlgeschlagen:', participantError)
       }
