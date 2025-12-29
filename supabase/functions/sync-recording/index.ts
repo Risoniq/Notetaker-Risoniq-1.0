@@ -72,9 +72,9 @@ Deno.serve(async (req) => {
     const recallApiKey = Deno.env.get('RECALL_API_KEY')
     const recallApiUrl = Deno.env.get('RECALL_API_URL') || 'https://us-west-2.recall.ai/api/v1/bot'
 
-    // 3. ID aus dem Request holen (vom Frontend gesendet)
-    const { id } = await req.json()
-    console.log(`Sync-Recording aufgerufen für ID: ${id}`)
+    // 3. ID und force_resync aus dem Request holen (vom Frontend gesendet)
+    const { id, force_resync = false } = await req.json()
+    console.log(`Sync-Recording aufgerufen für ID: ${id}, Force Resync: ${force_resync}`)
 
     // 4. Datenbank-Eintrag holen, um die recall_bot_id zu bekommen
     const { data: recording, error: dbError } = await supabase
@@ -173,8 +173,8 @@ Deno.serve(async (req) => {
     // 7. Daten vorbereiten für Update
     const updates: Record<string, unknown> = { status: status }
 
-    // Wenn der Bot fertig ist ('done'), holen wir die Video- und Transkript-URLs sowie Teilnehmer
-    if (status === 'done') {
+    // Wenn der Bot fertig ist ('done') ODER force_resync angefordert wurde, holen wir die Video- und Transkript-URLs sowie Teilnehmer
+    if (status === 'done' || force_resync) {
       console.log('Bot ist fertig, extrahiere Media-URLs und Teilnehmer...')
       console.log('Recordings Array:', JSON.stringify(botData.recordings, null, 2))
       

@@ -59,19 +59,25 @@ export default function MeetingDetail() {
     }
   }, [id]);
 
-  const syncRecordingStatus = useCallback(async () => {
-    if (!id || !recording || recording.status === 'done' || recording.status === 'error') {
+  const syncRecordingStatus = useCallback(async (forceResync = false) => {
+    if (!id || !recording) {
+      return;
+    }
+    
+    // Wenn nicht forced, nur bei nicht-fertigen Status synchronisieren
+    if (!forceResync && (recording.status === 'done' || recording.status === 'error')) {
       return;
     }
 
     setIsSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke('sync-recording', {
-        body: { id }
+        body: { id, force_resync: forceResync }
       });
 
       if (error) {
         console.error('Sync error:', error);
+        toast.error("Synchronisierung fehlgeschlagen");
         return;
       }
 
@@ -80,13 +86,15 @@ export default function MeetingDetail() {
       if (updatedRecording) {
         setRecording(updatedRecording);
         
-        // Show toast when status changes to done
-        if (updatedRecording.status === 'done' && recording.status !== 'done') {
+        if (forceResync) {
+          toast.success("Transkript und Teilnehmernamen wurden aktualisiert!");
+        } else if (updatedRecording.status === 'done' && recording.status !== 'done') {
           toast.success("Aufnahme erfolgreich verarbeitet!");
         }
       }
     } catch (error) {
       console.error('Error syncing recording:', error);
+      toast.error("Synchronisierung fehlgeschlagen");
     } finally {
       setIsSyncing(false);
     }
@@ -290,11 +298,25 @@ export default function MeetingDetail() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Re-Sync Button für abgeschlossene Meetings */}
+            {recording.status === 'done' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => syncRecordingStatus(true)}
+                disabled={isSyncing}
+                className="rounded-xl hover:bg-primary/10 transition-all"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? 'Aktualisiere...' : 'Transkript neu laden'}
+              </Button>
+            )}
+            {/* Status-Sync für laufende Meetings */}
             {['pending', 'joining', 'recording', 'processing'].includes(recording.status) && (
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={syncRecordingStatus}
+                onClick={() => syncRecordingStatus(false)}
                 disabled={isSyncing}
                 className="rounded-xl hover:bg-white/50 transition-all"
               >
