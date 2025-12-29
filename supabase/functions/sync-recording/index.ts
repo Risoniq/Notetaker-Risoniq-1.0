@@ -187,39 +187,53 @@ Deno.serve(async (req) => {
         console.log('Keine Video-URL in media_shortcuts gefunden')
       }
       
-      // Teilnehmer von Recall.ai abrufen - zuerst Bot-Info für meeting_participants
+      // Teilnehmer von Recall.ai abrufen - verbesserte Logik für MS Teams
       let participantMap: Record<string, string> = {}
       let participantsList: { id: string; name: string }[] = []
       
       try {
-        // Erst meeting_participants vom Bot-Endpoint holen (enthält echte Namen)
+        // meeting_participants enthält die echten Namen (besonders wichtig für Teams)
         console.log('Hole Meeting-Teilnehmer von Bot-Endpoint...')
-        const botInfoResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}`, {
-          method: 'GET',
-          headers: {
-            'Authorization': `Token ${recallApiKey}`,
-            'Content-Type': 'application/json',
-          },
-        })
+        console.log('Bot meeting_participants (raw):', JSON.stringify(botData.meeting_participants, null, 2))
         
-        if (botInfoResponse.ok) {
-          const botInfo = await botInfoResponse.json()
-          console.log('Bot meeting_participants:', JSON.stringify(botInfo.meeting_participants, null, 2))
-          
-          // Extrahiere Teilnehmer mit echten Namen
-          if (botInfo.meeting_participants && Array.isArray(botInfo.meeting_participants)) {
-            botInfo.meeting_participants.forEach((p: { id?: number; name?: string; platform_user_id?: string }, index: number) => {
-              const id = p.id !== undefined ? String(p.id) : String(index)
-              // Verwende den echten Namen, falls vorhanden
-              const name = p.name && p.name.trim() !== '' ? p.name : `Teilnehmer ${index + 1}`
-              participantMap[id] = name
-              participantsList.push({ id, name })
-              console.log(`Teilnehmer gemappt: ID ${id} -> "${name}"`)
-            })
-          }
+        // Extrahiere Teilnehmer mit echten Namen aus botData (bereits geladen)
+        if (botData.meeting_participants && Array.isArray(botData.meeting_participants)) {
+          botData.meeting_participants.forEach((p: { id?: number; name?: string; platform_user_id?: string; identifier?: string }, index: number) => {
+            // Nutze verschiedene ID-Formate die Recall.ai zurückgeben kann
+            const numericId = p.id !== undefined ? String(p.id) : null
+            const platformId = p.platform_user_id || null
+            const identifier = p.identifier || null
+            
+            // Verwende den echten Namen, falls vorhanden
+            const name = p.name && p.name.trim() !== '' ? p.name : null
+            
+            if (name) {
+              // Speichere unter allen verfügbaren IDs
+              if (numericId) {
+                participantMap[numericId] = name
+                console.log(`Teilnehmer gemappt (numericId): ${numericId} -> "${name}"`)
+              }
+              if (platformId) {
+                participantMap[platformId] = name
+                console.log(`Teilnehmer gemappt (platformId): ${platformId} -> "${name}"`)
+              }
+              if (identifier) {
+                participantMap[identifier] = name
+                console.log(`Teilnehmer gemappt (identifier): ${identifier} -> "${name}"`)
+              }
+              // Auch Index-basiert für Fallback
+              participantMap[String(index)] = name
+              
+              participantsList.push({ 
+                id: numericId || platformId || String(index), 
+                name 
+              })
+            }
+          })
         }
         
         // Zusätzlich speaker_timeline holen um Speaker-IDs zu Namen zu mappen
+        console.log('Hole Speaker Timeline...')
         const speakerTimelineResponse = await fetch(`${recallApiUrl}/${recording.recall_bot_id}/speaker_timeline`, {
           method: 'GET',
           headers: {
@@ -230,34 +244,50 @@ Deno.serve(async (req) => {
         
         if (speakerTimelineResponse.ok) {
           const speakerTimeline = await speakerTimelineResponse.json()
-          console.log('Speaker Timeline Sample:', JSON.stringify(speakerTimeline?.slice?.(0, 3), null, 2))
+          console.log('Speaker Timeline Länge:', Array.isArray(speakerTimeline) ? speakerTimeline.length : 'N/A')
+          console.log('Speaker Timeline Sample:', JSON.stringify(speakerTimeline?.slice?.(0, 5), null, 2))
           
           // Ergänze Mapping mit Daten aus speaker_timeline
           if (Array.isArray(speakerTimeline)) {
-            speakerTimeline.forEach((entry: { user?: { name?: string; id?: number } }) => {
-              if (entry.user?.id !== undefined) {
-                const speakerId = String(entry.user.id)
-                // Nur überschreiben wenn wir noch keinen echten Namen haben
-                if (!participantMap[speakerId] || participantMap[speakerId].startsWith('Teilnehmer ')) {
-                  if (entry.user.name && entry.user.name.trim() !== '') {
-                    participantMap[speakerId] = entry.user.name
-                    // Aktualisiere auch die Liste
-                    const existingIndex = participantsList.findIndex(p => p.id === speakerId)
-                    if (existingIndex >= 0) {
-                      participantsList[existingIndex].name = entry.user.name
-                    } else {
-                      participantsList.push({ id: speakerId, name: entry.user.name })
-                    }
-                    console.log(`Speaker Timeline Update: ID ${speakerId} -> "${entry.user.name}"`)
+            speakerTimeline.forEach((entry: { user?: { name?: string; id?: number; platform_user_id?: string; identifier?: string } }) => {
+              if (entry.user) {
+                const speakerId = entry.user.id !== undefined ? String(entry.user.id) : null
+                const platformId = entry.user.platform_user_id || null
+                const identifier = entry.user.identifier || null
+                const name = entry.user.name && entry.user.name.trim() !== '' ? entry.user.name : null
+                
+                if (name) {
+                  // Speichere unter allen IDs wenn wir noch keinen Namen haben
+                  if (speakerId && (!participantMap[speakerId] || participantMap[speakerId].startsWith('Teilnehmer ') || participantMap[speakerId].startsWith('Sprecher '))) {
+                    participantMap[speakerId] = name
+                    console.log(`Speaker Timeline Update (speakerId): ${speakerId} -> "${name}"`)
+                  }
+                  if (platformId && (!participantMap[platformId] || participantMap[platformId].startsWith('Teilnehmer ') || participantMap[platformId].startsWith('Sprecher '))) {
+                    participantMap[platformId] = name
+                    console.log(`Speaker Timeline Update (platformId): ${platformId} -> "${name}"`)
+                  }
+                  if (identifier && (!participantMap[identifier] || participantMap[identifier].startsWith('Teilnehmer ') || participantMap[identifier].startsWith('Sprecher '))) {
+                    participantMap[identifier] = name
+                    console.log(`Speaker Timeline Update (identifier): ${identifier} -> "${name}"`)
+                  }
+                  
+                  // Aktualisiere oder füge zur Liste hinzu
+                  const existingIndex = participantsList.findIndex(p => p.id === (speakerId || platformId))
+                  if (existingIndex >= 0) {
+                    participantsList[existingIndex].name = name
+                  } else if (speakerId || platformId) {
+                    participantsList.push({ id: speakerId || platformId || '', name })
                   }
                 }
               }
             })
           }
+        } else {
+          console.error('Speaker Timeline Abruf fehlgeschlagen:', speakerTimelineResponse.status)
         }
         
-        console.log('Finale Teilnehmer-Map:', participantMap)
-        console.log('Finale Teilnehmer-Liste:', participantsList)
+        console.log('Finale Teilnehmer-Map:', JSON.stringify(participantMap, null, 2))
+        console.log('Finale Teilnehmer-Liste:', JSON.stringify(participantsList, null, 2))
         
       } catch (participantError) {
         console.error('Teilnehmer-Abruf fehlgeschlagen:', participantError)
@@ -281,23 +311,44 @@ Deno.serve(async (req) => {
             const transcriptData = await transcriptResponse.json()
             console.log('Transkript abgerufen, Typ:', typeof transcriptData, 'Länge:', Array.isArray(transcriptData) ? transcriptData.length : 'N/A')
             
-            // Transkript formatieren mit Sprecher-Namen
+            // Transkript formatieren mit Sprecher-Namen - verbesserte Logik
             if (Array.isArray(transcriptData) && transcriptData.length > 0) {
               let speakerCounter = 1
               const unknownSpeakerMap: Record<string, string> = {}
               
+              console.log('Transkript Entry Sample:', JSON.stringify(transcriptData[0], null, 2))
+              
               const formattedTranscript = transcriptData
-                .map((entry: { speaker?: string; speaker_id?: number; words?: { text?: string }[] }) => {
+                .map((entry: { 
+                  speaker?: string; 
+                  speaker_id?: number; 
+                  user?: { id?: number; name?: string; platform_user_id?: string; identifier?: string };
+                  words?: { text?: string }[] 
+                }) => {
                   let speaker = 'Unbekannt'
                   
-                  // Versuche Sprecher-ID zu verwenden
-                  if (entry.speaker_id !== undefined) {
+                  // Priorität 1: user.name direkt im Entry (MS Teams liefert das oft so)
+                  if (entry.user?.name && entry.user.name.trim() !== '') {
+                    speaker = entry.user.name
+                  }
+                  // Priorität 2: user.id zum Nachschlagen in participantMap
+                  else if (entry.user?.id !== undefined) {
+                    const userId = String(entry.user.id)
+                    speaker = participantMap[userId] || `Sprecher ${entry.user.id + 1}`
+                  }
+                  // Priorität 3: user.platform_user_id
+                  else if (entry.user?.platform_user_id) {
+                    speaker = participantMap[entry.user.platform_user_id] || entry.user.platform_user_id
+                  }
+                  // Priorität 4: speaker_id
+                  else if (entry.speaker_id !== undefined) {
                     speaker = participantMap[String(entry.speaker_id)] || `Sprecher ${entry.speaker_id + 1}`
-                  } else if (entry.speaker) {
-                    // Wenn Speaker-ID nicht verfügbar, aber speaker String vorhanden
+                  }
+                  // Priorität 5: speaker String
+                  else if (entry.speaker) {
                     if (participantMap[entry.speaker]) {
                       speaker = participantMap[entry.speaker]
-                    } else if (entry.speaker !== 'Unbekannt' && entry.speaker !== '') {
+                    } else if (entry.speaker !== 'Unbekannt' && entry.speaker !== '' && entry.speaker !== 'unknown') {
                       speaker = entry.speaker
                     } else {
                       // Konsistente Nummerierung für unbekannte Sprecher

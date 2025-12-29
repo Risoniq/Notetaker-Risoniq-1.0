@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Bell, Bot, Calendar, Check, Globe, Loader2, Mic, Shield, Upload, Volume2, X } from "lucide-react";
+import { ArrowLeft, Bell, Bot, Calendar, Check, Globe, Loader2, Mic, RefreshCw, Shield, Upload, Volume2, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -24,6 +24,7 @@ const Settings = () => {
   const [botName, setBotName] = useState("Notetaker Bot");
   const [botAvatarUrl, setBotAvatarUrl] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isRepairingRecordings, setIsRepairingRecordings] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Load saved bot settings from localStorage
@@ -171,6 +172,42 @@ const Settings = () => {
       title: "Profilbild entfernt",
       description: "Das Bot-Profilbild wurde entfernt",
     });
+  };
+  
+  const repairAllRecordings = async () => {
+    setIsRepairingRecordings(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast({
+          title: "Nicht angemeldet",
+          description: "Bitte melde dich an, um Aufzeichnungen zu reparieren.",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      const response = await supabase.functions.invoke('repair-all-recordings');
+      
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+      
+      const result = response.data;
+      toast({
+        title: "Reparatur abgeschlossen",
+        description: `${result.repaired} von ${result.repaired + result.failed} Aufzeichnungen wurden aktualisiert.`,
+      });
+    } catch (err) {
+      console.error('Repair error:', err);
+      toast({
+        title: "Reparatur fehlgeschlagen",
+        description: "Die Aufzeichnungen konnten nicht repariert werden.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRepairingRecordings(false);
+    }
   };
 
   return (
@@ -334,6 +371,31 @@ const Settings = () => {
                   <p className="text-sm text-muted-foreground">Priorisiere Genauigkeit über Geschwindigkeit</p>
                 </div>
                 <Switch defaultChecked />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Alle Transkripte reparieren</Label>
+                  <p className="text-sm text-muted-foreground">Aktualisiert Teilnehmernamen in allen bestehenden Aufzeichnungen</p>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={repairAllRecordings}
+                  disabled={isRepairingRecordings}
+                >
+                  {isRepairingRecordings ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Repariere...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Reparieren
+                    </>
+                  )}
+                </Button>
               </div>
             </CardContent>
           </Card>

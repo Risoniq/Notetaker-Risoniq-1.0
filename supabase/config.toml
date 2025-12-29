@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.recall-calendar-meetings]
 verify_jwt = false
+
+[functions.repair-all-recordings]
+verify_jwt = false
