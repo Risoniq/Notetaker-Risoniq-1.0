@@ -111,6 +111,38 @@ const CalendarCallback = () => {
         const storedProvider = sessionStorage.getItem('recall_oauth_provider');
         const effectiveProvider = provider || storedProvider;
 
+        // Helper function to close popup and notify opener
+        const closePopupWithSuccess = () => {
+          // Try to send message to opener window
+          if (window.opener && !window.opener.closed) {
+            try {
+              window.opener.postMessage({
+                type: 'recall-oauth-callback',
+                success: true,
+                provider: effectiveProvider,
+              }, '*');
+              console.log('[CalendarCallback] Posted success message to opener');
+            } catch (e) {
+              console.error('[CalendarCallback] Failed to post message:', e);
+            }
+          }
+          
+          // Try to close the popup
+          try {
+            window.close();
+          } catch {
+            // If we can't close, show success and auto-redirect
+          }
+          
+          // Fallback: If popup didn't close, show success message and redirect
+          setTimeout(() => {
+            // If we're still here, the popup didn't close - redirect instead
+            if (document.hasFocus()) {
+              navigate(`/?oauth_complete=true&provider=${effectiveProvider}`);
+            }
+          }, 2000);
+        };
+
         // Handle Microsoft-specific errors
         if (msError) {
           console.error('[CalendarCallback] Microsoft OAuth error:', msError, msErrorDescription);
@@ -151,32 +183,28 @@ const CalendarCallback = () => {
           return;
         }
 
-        // If opened as popup, try to communicate with opener
-        if (window.opener && !window.opener.closed) {
-          const callbackMessage = {
-            type: 'google-auth-callback' as const,
-            success: oauthSuccess === 'true',
-            provider: effectiveProvider,
-            error: msError || recallError || undefined,
-          };
-          window.opener.postMessage(callbackMessage, window.location.origin);
-          console.log('[CalendarCallback] Posted message to opener');
-          window.close();
+        // OAuth success - either explicit or implied by stored provider
+        if (oauthSuccess === 'true' || storedProvider) {
+          sessionStorage.removeItem('recall_oauth_provider');
+          setStatus('success');
+          setMessage('Kalender erfolgreich verbunden!');
+          
+          console.log('[CalendarCallback] OAuth successful, closing popup or redirecting');
+          
+          // Close popup and notify opener, or redirect
+          closePopupWithSuccess();
           return;
         }
 
-        // Redirect flow: OAuth was successful
-        if (oauthSuccess === 'true' || storedProvider) {
+        // No error but also no success - this might be a direct callback from Recall.ai
+        // In this case, we assume success if there's no error
+        if (storedProvider || effectiveProvider) {
           sessionStorage.removeItem('recall_oauth_provider');
           setStatus('success');
           setMessage('Kalender wird synchronisiert...');
           
-          console.log('[CalendarCallback] OAuth successful, redirecting to home with provider:', effectiveProvider);
-          
-          // Redirect back to main page with success flag
-          setTimeout(() => {
-            navigate(`/?oauth_complete=true&provider=${effectiveProvider}`);
-          }, 1500);
+          console.log('[CalendarCallback] Assuming success, closing popup');
+          closePopupWithSuccess();
           return;
         }
 
