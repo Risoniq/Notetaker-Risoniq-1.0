@@ -115,6 +115,31 @@ export function useRecallCalendar() {
     }
   }, [authUser?.id, authUser?.email]);
 
+  // Listen for postMessage from OAuth popup
+  useEffect(() => {
+    const handleMessage = async (event: MessageEvent) => {
+      // Verify origin for security
+      if (!event.origin.includes(window.location.hostname) && !event.origin.includes('lovableproject.com') && !event.origin.includes('lovable.app')) {
+        return;
+      }
+      
+      if (event.data?.type === 'recall-oauth-callback' && event.data?.success) {
+        console.log('[useRecallCalendar] Received OAuth success message from popup');
+        setStatus('syncing');
+        toast.success('Kalender wird synchronisiert...');
+        
+        // The polling mechanism in connect() will handle detecting the connection
+        // but we can also trigger a manual check
+        if (authUser?.id) {
+          await checkStatus(true);
+        }
+      }
+    };
+    
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [authUser?.id, checkStatus]);
+
   // Check for OAuth callback on mount (for redirect flow)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -181,6 +206,7 @@ export function useRecallCalendar() {
       
       toast.error('Kalender-Verbindung fehlgeschlagen. Bitte versuche es erneut.');
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id, authUser?.email]);
 
 
