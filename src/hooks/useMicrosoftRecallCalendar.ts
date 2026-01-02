@@ -81,16 +81,51 @@ export function useMicrosoftRecallCalendar() {
   // Listen for postMessage from OAuth popup
   useEffect(() => {
     const handleMessage = async (event: MessageEvent) => {
-      if (!event.origin.includes(window.location.hostname) && !event.origin.includes('lovableproject.com') && !event.origin.includes('lovable.app')) {
+      // Accept messages from same origin, lovable domains, or any origin if it's our callback type
+      const isValidOrigin = event.origin.includes(window.location.hostname) || 
+        event.origin.includes('lovableproject.com') || 
+        event.origin.includes('lovable.app');
+      
+      if (!isValidOrigin && event.data?.type !== 'recall-oauth-callback') {
         return;
       }
       
-      if (event.data?.type === 'recall-oauth-callback' && event.data?.success && event.data?.provider === 'microsoft') {
-        console.log('[useMicrosoftRecallCalendar] Received OAuth success message from popup');
+      if (event.data?.type === 'recall-oauth-callback' && event.data?.provider === 'microsoft') {
+        console.log('[useMicrosoftRecallCalendar] Received OAuth message from popup:', event.data);
+        
+        // Handle blocked redirect case
+        if (event.data?.blocked) {
+          console.log('[useMicrosoftRecallCalendar] Redirect was blocked, starting aggressive polling');
+          toast.info('Verbindung wird im Hintergrund geprüft...', { duration: 5000 });
+        }
+        
         setStatus('syncing');
-        toast.success('Microsoft Kalender wird synchronisiert...');
         
         if (authUser?.id) {
+          // Aggressive retry with longer delays for blocked redirects
+          const delays = event.data?.blocked ? [2000, 3000, 4000, 5000, 6000] : [1500, 2000, 2500];
+          
+          for (const delay of delays) {
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            const { data } = await supabase.functions.invoke('microsoft-recall-auth', {
+              body: { 
+                action: 'status', 
+                supabase_user_id: authUser.id,
+                user_email: authUser.email,
+              },
+            });
+            
+            if (data?.success && data.connected) {
+              setConnected(true);
+              setRecallUserId(data.recall_user_id || null);
+              setStatus('connected');
+              toast.success('Microsoft Kalender erfolgreich verbunden!');
+              return;
+            }
+          }
+          
+          // Final status check
           await checkStatus(true);
         }
       }
@@ -98,7 +133,7 @@ export function useMicrosoftRecallCalendar() {
     
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [authUser?.id, checkStatus]);
+  }, [authUser?.id, authUser?.email, checkStatus]);
 
   // Check for OAuth callback on mount
   useEffect(() => {
