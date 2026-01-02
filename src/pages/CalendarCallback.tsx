@@ -218,6 +218,22 @@ const CalendarCallback = () => {
         // Fallback: No clear state - this could be ERR_BLOCKED_BY_RESPONSE redirect
         // Show special "blocked" state with instructions
         console.log('[CalendarCallback] No clear OAuth state - might be blocked redirect');
+        
+        // Immediately notify opener that redirect was blocked
+        if (window.opener && !window.opener.closed) {
+          try {
+            window.opener.postMessage({
+              type: 'recall-oauth-callback',
+              success: true,
+              provider: storedProvider || 'microsoft',
+              blocked: true,
+            }, '*');
+            console.log('[CalendarCallback] Posted blocked-redirect message to opener');
+          } catch (e) {
+            console.error('[CalendarCallback] Failed to post blocked message:', e);
+          }
+        }
+        
         setStatus('blocked');
         setMessage('Anmeldung möglicherweise erfolgreich');
       } catch (err) {

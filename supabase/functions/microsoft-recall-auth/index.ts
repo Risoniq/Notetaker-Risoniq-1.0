@@ -273,7 +273,11 @@ serve(async (req) => {
       }
 
       const authData = await authResponse.json();
-      console.log('[MicrosoftAuth] Recall auth token received for user:', recallUserId);
+      console.log('[MicrosoftAuth] Recall auth token received:', {
+        user_id: recallUserId,
+        has_token: !!authData.token,
+        token_length: authData.token?.length || 0,
+      });
 
       // Build Microsoft OAuth URL
       const recallRegion = 'eu-central-1';
@@ -298,6 +302,7 @@ serve(async (req) => {
         `&client_id=${encodeURIComponent(MS_OAUTH_CLIENT_ID)}`;
 
       console.log('[MicrosoftAuth] OAuth URL generated successfully');
+      console.log('[MicrosoftAuth] State object:', JSON.stringify(stateObj, null, 2));
       console.log('[MicrosoftAuth] Debug info:', {
         provider: 'microsoft',
         recall_host: `${recallRegion}.recall.ai`,
@@ -305,6 +310,7 @@ serve(async (req) => {
         app_callback: redirect_uri || 'none',
         client_id_prefix: MS_OAUTH_CLIENT_ID.substring(0, 8) + '...',
         scopes: msScopes,
+        prompt: 'consent',
       });
 
       return new Response(
@@ -466,6 +472,57 @@ serve(async (req) => {
         JSON.stringify({ 
           success: true, 
           message: 'Microsoft calendar disconnected',
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ACTION: debug - Get detailed Recall.ai connection info
+    if (action === 'debug') {
+      const { data: calendarUser } = await supabase
+        .from('recall_calendar_users')
+        .select('recall_user_id, microsoft_connected, google_connected')
+        .eq('supabase_user_id', supabaseUserId)
+        .maybeSingle();
+
+      if (!calendarUser?.recall_user_id) {
+        return new Response(
+          JSON.stringify({ success: true, message: 'No Recall user found', data: null }),
+          { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const authToken = await getRecallAuthToken(calendarUser.recall_user_id);
+      if (!authToken) {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Failed to get Recall auth token' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Fetch full user data from Recall.ai
+      const userResponse = await fetch(`https://eu-central-1.recall.ai/api/v1/calendar/user/?user_id=${calendarUser.recall_user_id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Token ${RECALL_API_KEY}`,
+          'x-recallcalendarauthtoken': authToken,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      let recallData = null;
+      if (userResponse.ok) {
+        recallData = await userResponse.json();
+      } else {
+        console.error('[MicrosoftAuth] Debug: Recall API error:', userResponse.status);
+      }
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          database: calendarUser,
+          recall_api: recallData,
+          recall_user_id: calendarUser.recall_user_id,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
