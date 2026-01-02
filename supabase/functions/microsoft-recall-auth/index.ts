@@ -361,15 +361,17 @@ serve(async (req) => {
             'x-recallcalendarauthtoken': authData.token,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(defaultPreferences),
+          body: JSON.stringify({ preferences: defaultPreferences }),
         });
+
+        console.log('[MicrosoftAuth] Sent preferences body:', JSON.stringify({ preferences: defaultPreferences }));
 
         if (!response.ok) {
           const errorText = await response.text();
           console.error('[MicrosoftAuth] Failed to sync default preferences:', response.status, errorText);
         } else {
           const result = await response.json();
-          console.log('[MicrosoftAuth] Default preferences synced successfully:', JSON.stringify(result));
+          console.log('[MicrosoftAuth] Received preferences from Recall:', JSON.stringify(result.preferences));
         }
       } catch (error) {
         console.error('[MicrosoftAuth] Error syncing default preferences:', error);

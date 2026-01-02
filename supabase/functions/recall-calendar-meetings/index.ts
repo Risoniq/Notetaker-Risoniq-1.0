@@ -426,8 +426,10 @@ serve(async (req) => {
             'x-recallcalendarauthtoken': authData.token,
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify(recallPreferences),
+          body: JSON.stringify({ preferences: recallPreferences }),
         });
+
+        console.log('[Sync] Sent preferences body:', JSON.stringify({ preferences: recallPreferences }));
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -435,7 +437,7 @@ serve(async (req) => {
           return false;
         }
         const result = await response.json();
-        console.log('[Internal] Preferences synced successfully:', JSON.stringify(result));
+        console.log('[Sync] Received preferences from Recall:', JSON.stringify(result.preferences));
         return true;
       } catch (error) {
         console.error('[Internal] Error syncing preferences:', error);
