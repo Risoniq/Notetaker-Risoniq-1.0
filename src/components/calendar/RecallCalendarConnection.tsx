@@ -190,8 +190,7 @@ export const RecallCalendarConnection = ({
                 Warte auf Anmeldung...
               </p>
               <p className="text-sm text-blue-600/80 dark:text-blue-400/80 mt-1">
-                Die Anmeldung wurde in einem <strong>neuen Tab</strong> geöffnet. 
-                Nach erfolgreicher Anmeldung wirst du automatisch zurückgeleitet.
+                Ein Login-Popup wurde geöffnet. Bitte schließe es nach der Anmeldung.
               </p>
             </div>
           </div>
@@ -208,19 +207,34 @@ export const RecallCalendarConnection = ({
             </Button>
             
             {pendingOauthUrl && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => window.open(pendingOauthUrl, '_blank')}
-              >
-                {pendingOauthProvider === 'microsoft' ? 'Microsoft Login öffnen' : 'Google Login öffnen'}
-              </Button>
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const width = 600;
+                    const height = 700;
+                    const left = Math.max(0, (window.screen.width - width) / 2);
+                    const top = Math.max(0, (window.screen.height - height) / 2);
+                    window.open(pendingOauthUrl, 'recall-calendar-auth', `width=${width},height=${height},left=${left},top=${top}`);
+                  }}
+                >
+                  Popup erneut öffnen
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.open(pendingOauthUrl, '_blank')}
+                >
+                  In neuem Tab öffnen
+                </Button>
+              </>
             )}
           </div>
 
           {pendingOauthUrl && (
             <p className="text-xs text-blue-600/70 dark:text-blue-400/70">
-              Tab nicht geöffnet? Nutze den Button oben.
+              Popup blockiert? Nutze die Buttons oben.
             </p>
           )}
         </div>

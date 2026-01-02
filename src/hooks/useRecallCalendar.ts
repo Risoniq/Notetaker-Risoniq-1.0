@@ -289,28 +289,42 @@ export function useRecallCalendar() {
         setPendingOauthUrl(data.oauth_url);
         setPendingOauthProvider(provider);
 
-        // Open in NEW TAB instead of popup to avoid ERR_BLOCKED_BY_RESPONSE
-        const authTab = window.open(data.oauth_url, '_blank');
+        // Open as POPUP (centered)
+        const width = 600;
+        const height = 700;
+        const left = Math.max(0, (window.screen.width - width) / 2);
+        const top = Math.max(0, (window.screen.height - height) / 2);
         
-        if (!authTab) {
-          toast.error('Tab wurde blockiert. Bitte öffne die Anmeldung manuell über den Button.');
+        const popup = window.open(
+          data.oauth_url,
+          'recall-calendar-auth',
+          `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+        );
+        
+        if (!popup) {
+          toast.error('Popup wurde blockiert. Bitte öffne die Anmeldung manuell über den Button.');
           setIsLoading(false);
           return;
         }
 
         toast.info(
-          `${provider === 'microsoft' ? 'Microsoft' : 'Google'} Login in neuem Tab geöffnet. Nach der Anmeldung wirst du automatisch zurückgeleitet.`,
-          { duration: 15000 }
+          `${provider === 'microsoft' ? 'Microsoft' : 'Google'} Login geöffnet. Bitte schließe das Popup nach der Anmeldung.`,
+          { duration: 10000 }
         );
 
         setIsLoading(false);
 
-        // Poll for connection + listen for window focus (when user returns)
+        // Poll for connection status
         let pollCount = 0;
-        const maxPolls = 200; // 5 minutes at 1.5s
+        const maxPolls = 200; // 5 minutes at 1.5s intervals
 
         const pollForConnection = setInterval(async () => {
           pollCount++;
+
+          // Check if popup was closed
+          if (popup.closed && pollCount > 5) {
+            console.log('[useRecallCalendar] Popup closed, checking status...');
+          }
 
           try {
             const { data: statusData } = await supabase.functions.invoke('recall-calendar-auth', {
@@ -319,6 +333,13 @@ export function useRecallCalendar() {
                 supabase_user_id: authUser.id,
                 user_email: authUser.email,
               },
+            });
+
+            console.log('[useRecallCalendar] Poll status response:', {
+              pollCount,
+              google: statusData?.google_connected,
+              microsoft: statusData?.microsoft_connected,
+              recall_user_id: statusData?.recall_user_id,
             });
 
             if (statusData?.success) {
@@ -335,6 +356,9 @@ export function useRecallCalendar() {
                 setStatus('connected');
                 toast.success('Kalender erfolgreich verbunden!');
                 await fetchMeetings();
+                
+                // Try to close popup if still open
+                try { popup.close(); } catch {}
               }
             }
           } catch (err) {

@@ -323,11 +323,12 @@ serve(async (req) => {
       }
 
       const authData = await authResponse.json();
-      console.log('Recall auth response received');
+      console.log('[authenticate] Recall auth token received for user:', recallUserId);
 
       // Build the OAuth URL
       const recallRegion = 'eu-central-1';
       let oauthUrl: string;
+      let debugInfo: Record<string, string> = {};
       
       if (provider === 'microsoft') {
         const msClientId = (Deno.env.get('MS_OAUTH_CLIENT_ID') || '').trim();
@@ -365,8 +366,17 @@ serve(async (req) => {
           `&state=${encodeURIComponent(JSON.stringify(stateObj))}` +
           `&redirect_uri=${encodeURIComponent(msRedirectUri)}` +
           `&client_id=${encodeURIComponent(msClientId)}`;
-          
-        console.log('Microsoft OAuth URL built');
+        
+        debugInfo = {
+          provider: 'microsoft',
+          recall_host: `${recallRegion}.recall.ai`,
+          redirect_uri: msRedirectUri,
+          app_callback: redirect_uri || 'none',
+          client_id_prefix: msClientId.substring(0, 8) + '...',
+          scopes: msScopes,
+        };
+        
+        console.log('[authenticate] Microsoft OAuth config:', debugInfo);
       } else {
         const googleScopes = 'https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/userinfo.email';
         const googleRedirectUri = `https://${recallRegion}.recall.ai/api/v1/calendar/google_oauth_callback/`;
@@ -378,7 +388,7 @@ serve(async (req) => {
           error_url: redirect_uri ? `${redirect_uri}?oauth_error=true&provider=google` : undefined,
         };
         
-        oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+        oauthUrl = `https://accounts.google.com/o/oauth2/v2.auth?` +
           `scope=${encodeURIComponent(googleScopes)}` +
           `&access_type=offline` +
           `&prompt=consent` +
@@ -387,11 +397,19 @@ serve(async (req) => {
           `&state=${encodeURIComponent(JSON.stringify(stateObj))}` +
           `&redirect_uri=${encodeURIComponent(googleRedirectUri)}` +
           `&client_id=${Deno.env.get('GOOGLE_CLIENT_ID') || ''}`;
-          
-        console.log('Google OAuth URL built');
+        
+        debugInfo = {
+          provider: 'google',
+          recall_host: `${recallRegion}.recall.ai`,
+          redirect_uri: googleRedirectUri,
+          app_callback: redirect_uri || 'none',
+          scopes: googleScopes,
+        };
+        
+        console.log('[authenticate] Google OAuth config:', debugInfo);
       }
       
-      console.log('OAuth URL ready');
+      console.log('[authenticate] OAuth URL generated successfully');
 
       return new Response(
         JSON.stringify({
@@ -399,6 +417,7 @@ serve(async (req) => {
           user_id: recallUserId,
           oauth_url: oauthUrl,
           token: authData.token,
+          debug: debugInfo,
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
@@ -449,6 +468,13 @@ serve(async (req) => {
 
       // Check connections
       const { google: googleConnected, microsoft: microsoftConnected, userData } = await checkRecallConnections(recallUserId, authToken);
+      
+      console.log('[status] Connection check result:', {
+        recall_user_id: recallUserId,
+        google_connected: googleConnected,
+        microsoft_connected: microsoftConnected,
+        has_user_data: !!userData,
+      });
 
       // Check if we might need repair - if email-based ID would be different
       const expectedId = getStableRecallUserId(userEmail, supabaseUserId);
