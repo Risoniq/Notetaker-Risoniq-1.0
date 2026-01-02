@@ -1,9 +1,12 @@
-import { RecallMeeting } from '@/hooks/useRecallCalendar';
-import { Video, Clock, Users, Bot, BotOff, AlertTriangle, RefreshCw } from 'lucide-react';
+import { RecallMeeting } from '@/hooks/useRecallCalendarMeetings';
+import { Video, Clock, Users, Bot, BotOff, AlertTriangle, RefreshCw, Loader2, LinkIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { format, formatDistanceToNow, isToday, isTomorrow, differenceInMinutes } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface RecallUpcomingMeetingsProps {
   meetings: RecallMeeting[];
@@ -12,6 +15,7 @@ interface RecallUpcomingMeetingsProps {
   onToggleRecording: (meetingId: string, shouldRecord: boolean) => void;
   onJoinMeeting: (meeting: RecallMeeting) => void;
   onRetry?: () => void;
+  onBotStarted?: () => void;
 }
 
 export const RecallUpcomingMeetings = ({ 
@@ -21,7 +25,56 @@ export const RecallUpcomingMeetings = ({
   onToggleRecording,
   onJoinMeeting,
   onRetry,
+  onBotStarted,
 }: RecallUpcomingMeetingsProps) => {
+  const [startingBotFor, setStartingBotFor] = useState<string | null>(null);
+
+  // Sort meetings by start_time and take only the first 3
+  const sortedMeetings = [...meetings]
+    .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+    .slice(0, 3);
+
+  // Start bot immediately when joining
+  const handleJoinWithBot = async (meeting: RecallMeeting) => {
+    if (!meeting.meeting_url) {
+      toast.error('Kein Meeting-Link vorhanden');
+      return;
+    }
+
+    setStartingBotFor(meeting.id);
+    try {
+      // Get auth token
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error('Nicht angemeldet');
+        return;
+      }
+
+      // Start bot via create-bot function
+      const { data, error } = await supabase.functions.invoke('create-bot', {
+        body: {
+          meetingUrl: meeting.meeting_url,
+          botName: 'Meeting Recorder',
+        },
+      });
+
+      if (error) {
+        console.error('Error starting bot:', error);
+        toast.error('Bot konnte nicht gestartet werden');
+      } else if (data?.success) {
+        toast.success('Bot tritt bei...');
+        onBotStarted?.();
+      }
+    } catch (err) {
+      console.error('Error starting bot:', err);
+      toast.error('Fehler beim Starten des Bots');
+    } finally {
+      setStartingBotFor(null);
+    }
+
+    // Open meeting link regardless
+    onJoinMeeting(meeting);
+  };
   if (isLoading) {
     return (
       <div className="space-y-3">
@@ -66,7 +119,7 @@ export const RecallUpcomingMeetings = ({
     );
   }
 
-  if (meetings.length === 0) {
+  if (sortedMeetings.length === 0) {
     return (
       <div className="bg-card border border-border rounded-xl p-8 text-center">
         <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
@@ -123,8 +176,8 @@ export const RecallUpcomingMeetings = ({
     }
   };
 
-  // Group meetings by date
-  const groupedMeetings = meetings.reduce((groups, meeting) => {
+  // Group sorted meetings by date
+  const groupedMeetings = sortedMeetings.reduce((groups, meeting) => {
     const dateLabel = getDateLabel(meeting.start_time);
     if (!groups[dateLabel]) {
       groups[dateLabel] = [];
@@ -194,15 +247,25 @@ export const RecallUpcomingMeetings = ({
 
                       {/* Bot status indicator */}
                       <div className="flex items-center gap-2 mt-2">
-                        {meeting.will_record ? (
-                          <div className="flex items-center gap-1 text-xs text-green-500">
-                            <Bot size={14} />
-                            <span>Bot wird beitreten</span>
-                          </div>
+                        {meeting.meeting_url ? (
+                          meeting.will_record ? (
+                            <div className="flex items-center gap-1 text-xs text-green-500">
+                              <Bot size={14} />
+                              <span>Bot wird beitreten</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              <BotOff size={14} />
+                              <span>Keine Aufnahme</span>
+                              {meeting.will_record_reason && (
+                                <span className="text-xs opacity-70">– {meeting.will_record_reason}</span>
+                              )}
+                            </div>
+                          )
                         ) : (
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <BotOff size={14} />
-                            <span>Keine Aufnahme</span>
+                          <div className="flex items-center gap-1 text-xs text-amber-500">
+                            <LinkIcon size={14} />
+                            <span>Kein Meeting-Link erkannt</span>
                           </div>
                         )}
                       </div>
@@ -215,18 +278,39 @@ export const RecallUpcomingMeetings = ({
                         <Switch
                           checked={meeting.will_record}
                           onCheckedChange={(checked) => onToggleRecording(meeting.id, checked)}
+                          disabled={!meeting.meeting_url}
                         />
                       </div>
 
-                      {meeting.meeting_url && (
+                      {meeting.meeting_url ? (
                         <Button
                           variant={happeningSoon || happeningNow ? 'default' : 'outline'}
                           size="sm"
                           className={happeningSoon || happeningNow ? 'gradient-hero' : ''}
-                          onClick={() => onJoinMeeting(meeting)}
+                          onClick={() => handleJoinWithBot(meeting)}
+                          disabled={startingBotFor === meeting.id}
                         >
-                          <Video size={14} className="mr-1" />
-                          Beitreten
+                          {startingBotFor === meeting.id ? (
+                            <>
+                              <Loader2 size={14} className="mr-1 animate-spin" />
+                              Bot startet...
+                            </>
+                          ) : (
+                            <>
+                              <Video size={14} className="mr-1" />
+                              Beitreten
+                            </>
+                          )}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled
+                          className="opacity-50"
+                        >
+                          <LinkIcon size={14} className="mr-1" />
+                          Kein Link
                         </Button>
                       )}
                     </div>

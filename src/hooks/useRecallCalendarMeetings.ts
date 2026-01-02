@@ -12,6 +12,7 @@ export interface RecallMeeting {
   platform: string | null;
   bot_id: string | null;
   will_record: boolean;
+  will_record_reason: string | null;
   override_should_record: boolean | null;
   attendees: { email: string; name?: string }[];
   organizer: string | null;

@@ -74,6 +74,7 @@ export const RecallCalendarView = ({ onStartRecording }: RecallCalendarViewProps
               onToggleRecording={meetings.updateMeetingRecording}
               onJoinMeeting={handleJoinMeeting}
               onRetry={meetings.fetchMeetings}
+              onBotStarted={meetings.fetchMeetings}
             />
           </div>
         </>
