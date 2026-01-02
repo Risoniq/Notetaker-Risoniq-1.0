@@ -140,9 +140,12 @@ serve(async (req) => {
 
       const authData = await authResponse.json();
 
-      // Get upcoming meetings from Recall.ai
+      // Get meetings including those that started up to 2 hours ago (for ongoing meetings)
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      console.log('[list] Fetching meetings since:', twoHoursAgo);
+      
       const meetingsResponse = await fetch(
-        `https://eu-central-1.recall.ai/api/v1/calendar/meetings/?user_id=${recallUserId}&start_time__gte=${new Date().toISOString()}`,
+        `https://eu-central-1.recall.ai/api/v1/calendar/meetings/?user_id=${recallUserId}&start_time__gte=${twoHoursAgo}`,
         {
           method: 'GET',
           headers: {
@@ -194,19 +197,43 @@ serve(async (req) => {
           return `https://www.gotomeet.me/${meeting.goto_meeting_invite.meeting_id}`;
         }
         
-        // Fallback: Try to extract from description HTML
+        // Fallback: Try to extract from description (HTML and plaintext)
         if (meeting.description) {
-          // Look for Teams meeting link
-          const teamsMatch = meeting.description.match(/href="(https:\/\/teams\.(microsoft|live)\.com\/[^"]+)"/);
-          if (teamsMatch) return teamsMatch[1];
+          // Look for Teams meeting links - multiple patterns
+          const teamsPatterns = [
+            /href="(https:\/\/teams\.(microsoft|live)\.com\/[^"]+)"/,
+            /href="(https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^"]+)"/,
+            /(https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^\s<"]+)/,
+            /(https:\/\/teams\.live\.com\/meet\/[^\s<"]+)/,
+          ];
+          for (const pattern of teamsPatterns) {
+            const match = meeting.description.match(pattern);
+            if (match) return match[1];
+          }
           
           // Look for Zoom link
-          const zoomMatch = meeting.description.match(/href="(https:\/\/[\w.]*zoom\.us\/[^"]+)"/);
-          if (zoomMatch) return zoomMatch[1];
+          const zoomPatterns = [
+            /href="(https:\/\/[\w.]*zoom\.us\/[^"]+)"/,
+            /(https:\/\/[\w.]*zoom\.us\/j\/[^\s<"]+)/,
+          ];
+          for (const pattern of zoomPatterns) {
+            const match = meeting.description.match(pattern);
+            if (match) return match[1];
+          }
           
           // Look for Google Meet link
-          const meetMatch = meeting.description.match(/href="(https:\/\/meet\.google\.com\/[^"]+)"/);
-          if (meetMatch) return meetMatch[1];
+          const meetPatterns = [
+            /href="(https:\/\/meet\.google\.com\/[^"]+)"/,
+            /(https:\/\/meet\.google\.com\/[a-z-]+)/i,
+          ];
+          for (const pattern of meetPatterns) {
+            const match = meeting.description.match(pattern);
+            if (match) return match[1];
+          }
+          
+          // Look for Webex link
+          const webexMatch = meeting.description.match(/(https:\/\/[\w.]*webex\.com\/[^\s<"]+)/);
+          if (webexMatch) return webexMatch[1];
         }
         
         return null;
@@ -214,6 +241,19 @@ serve(async (req) => {
 
       const meetings = (meetingsData.results || []).map((meeting: any) => {
         const meetingUrl = extractMeetingUrl(meeting);
+        const willRecord = meeting.will_record ?? (meeting.bot_id !== null);
+        
+        // Log for debugging
+        console.log('[list] Meeting:', {
+          id: meeting.id,
+          title: meeting.title,
+          has_url: !!meetingUrl,
+          will_record: willRecord,
+          will_record_reason: meeting.will_record_reason,
+          override_should_record: meeting.override_should_record,
+          bot_id: meeting.bot_id,
+        });
+        
         return {
           id: meeting.id,
           title: meeting.title || 'Untitled Meeting',
@@ -222,13 +262,17 @@ serve(async (req) => {
           meeting_url: meetingUrl,
           platform: meeting.meeting_platform || meeting.platform,
           bot_id: meeting.bot_id,
-          will_record: meeting.will_record ?? (meeting.bot_id !== null),
+          will_record: willRecord,
+          will_record_reason: meeting.will_record_reason || null,
           override_should_record: meeting.override_should_record,
           attendees: meeting.attendees || [],
           organizer: meeting.organizer_email || meeting.organizer,
           is_organizer: meeting.is_hosted_by_me ?? meeting.is_organizer,
         };
       });
+      
+      // Sort by start_time
+      meetings.sort((a: any, b: any) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
 
       return new Response(
         JSON.stringify({ success: true, meetings }),
