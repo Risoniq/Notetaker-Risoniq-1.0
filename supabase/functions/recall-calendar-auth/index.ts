@@ -132,19 +132,9 @@ serve(async (req) => {
       }
 
       if (existingUser?.recall_user_id) {
-        // Check if the stored recall_user_id matches the stable ID
-        // If not, we may need to repair it
-        if (existingUser.recall_user_id !== stableId) {
-          console.log('Detected recall_user_id mismatch:', {
-            stored: existingUser.recall_user_id,
-            expected: stableId,
-          });
-          // For now, return the existing one but log the mismatch
-          // The repair action will handle this
-        }
+        // ALWAYS use the stored recall_user_id - this is the ID that Recall.ai knows
+        // It may be a UUID from Recall.ai's system, not an email-based ID
         console.log('Found existing Recall user:', existingUser.recall_user_id);
-        // Note: Recall.ai users are created implicitly when they complete OAuth
-        // No need to call a separate user creation endpoint
         return { recallUserId: existingUser.recall_user_id, isNew: false };
       }
 
