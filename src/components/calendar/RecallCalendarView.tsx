@@ -4,7 +4,6 @@ import { useMicrosoftRecallCalendar } from '@/hooks/useMicrosoftRecallCalendar';
 import { useRecallCalendarMeetings, RecallMeeting } from '@/hooks/useRecallCalendarMeetings';
 import { RecallCalendarConnection } from './RecallCalendarConnection';
 import { RecallUpcomingMeetings } from './RecallUpcomingMeetings';
-import { RecallRecordingPreferences } from './RecallRecordingPreferences';
 import { QuickMeetingJoin } from './QuickMeetingJoin';
 import { CalendarMonthView } from './CalendarMonthView';
 import { isSameDay } from 'date-fns';
@@ -83,10 +82,6 @@ export const RecallCalendarView = ({ onStartRecording }: RecallCalendarViewProps
 
       {isConnected && (
         <>
-          <RecallRecordingPreferences
-            preferences={meetings.preferences}
-            onUpdatePreferences={meetings.updatePreferences}
-          />
 
           {/* Auto-refresh toggle */}
           <div className="flex items-center justify-between bg-card rounded-lg border border-border p-4">

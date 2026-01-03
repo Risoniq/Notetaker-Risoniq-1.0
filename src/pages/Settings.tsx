@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Bell, Bot, Calendar, Check, Globe, Loader2, Mic, RefreshCw, Shield, Upload, Volume2, X } from "lucide-react";
+import { ArrowLeft, Bell, Bot, Calendar, Check, Globe, Loader2, Mic, RefreshCw, Shield, Upload, Volume2, X, Settings2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -13,9 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useRecallCalendarMeetings } from "@/hooks/useRecallCalendarMeetings";
 
 const Settings = () => {
   const { status, events, connect, disconnect, error } = useGoogleCalendar();
+  const { preferences, updatePreferences } = useRecallCalendarMeetings();
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
   const { toast } = useToast();
@@ -522,12 +524,60 @@ const Settings = () => {
                 )}
               </div>
               <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Automatische Aufnahme</Label>
-                  <p className="text-sm text-muted-foreground">Bot automatisch zu Kalender-Meetings senden</p>
+              
+              {/* Recording Preferences from Recall.ai */}
+              <div className="space-y-4 pt-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <Settings2 size={16} className="text-muted-foreground" />
+                  <Label className="text-sm font-medium">Aufnahme-Einstellungen</Label>
                 </div>
-                <Switch />
+                
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Automatische Aufnahme</Label>
+                    <p className="text-sm text-muted-foreground">Bot tritt automatisch allen Meetings bei</p>
+                  </div>
+                  <Switch
+                    checked={preferences.auto_record}
+                    onCheckedChange={(checked) => updatePreferences({ auto_record: checked })}
+                  />
+                </div>
+                <Separator />
+                
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Alle Meetings aufnehmen</Label>
+                    <p className="text-sm text-muted-foreground">Auch Meetings, zu denen du eingeladen wurdest</p>
+                  </div>
+                  <Switch
+                    checked={preferences.record_all}
+                    onCheckedChange={(checked) => updatePreferences({ record_all: checked })}
+                  />
+                </div>
+                <Separator />
+                
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Nur eigene Meetings</Label>
+                    <p className="text-sm text-muted-foreground">Nur Meetings aufnehmen, die du organisiert hast</p>
+                  </div>
+                  <Switch
+                    checked={preferences.record_only_owned}
+                    onCheckedChange={(checked) => updatePreferences({ record_only_owned: checked })}
+                  />
+                </div>
+                <Separator />
+                
+                <div className="flex items-center justify-between">
+                  <div className="space-y-0.5">
+                    <Label>Externe Meetings aufnehmen</Label>
+                    <p className="text-sm text-muted-foreground">Meetings mit externen Teilnehmern aufnehmen</p>
+                  </div>
+                  <Switch
+                    checked={preferences.record_external}
+                    onCheckedChange={(checked) => updatePreferences({ record_external: checked })}
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>
