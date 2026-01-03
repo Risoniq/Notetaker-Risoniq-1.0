@@ -240,12 +240,53 @@ export default function MeetingDetail() {
       .sort((a, b) => a.firstOccurrence - b.firstOccurrence);
   };
 
+  // Automatisches Nummerieren von "Unbekannt" Sprechern
+  const autoNumberUnknownSpeakers = (transcript: string): { numberedTranscript: string; count: number } => {
+    const lines = transcript.split('\n');
+    let currentUnknownNumber = 0;
+    let lastSpeaker = '';
+    const unknownMapping: Map<number, number> = new Map();
+    
+    // Erster Durchlauf: Analysiere Muster
+    lines.forEach((line, index) => {
+      const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.0-9]+?):\s/);
+      if (match) {
+        const speaker = match[1].trim();
+        if (speaker === 'Unbekannt') {
+          if (lastSpeaker !== 'Unbekannt') {
+            // Neuer unbekannter Sprecher beginnt
+            currentUnknownNumber++;
+          }
+          unknownMapping.set(index, currentUnknownNumber);
+        }
+        lastSpeaker = speaker;
+      }
+    });
+    
+    // Zweiter Durchlauf: Ersetze
+    const numberedLines = lines.map((line, index) => {
+      if (unknownMapping.has(index)) {
+        return line.replace(/^Unbekannt:\s/, `Sprecher ${unknownMapping.get(index)}: `);
+      }
+      return line;
+    });
+    
+    return { numberedTranscript: numberedLines.join('\n'), count: currentUnknownNumber };
+  };
+
   // Transkript bearbeiten Funktionen
   const startEditingTranscript = () => {
     if (recording?.transcript_text) {
-      setEditedTranscript(recording.transcript_text);
+      // Automatisch "Unbekannt" nummerieren
+      const { numberedTranscript, count } = autoNumberUnknownSpeakers(recording.transcript_text);
+      
+      setEditedTranscript(numberedTranscript);
       setIsEditingTranscript(true);
-      setDetectedSpeakers(extractSpeakersFromTranscript(recording.transcript_text));
+      setDetectedSpeakers(extractSpeakersFromTranscript(numberedTranscript));
+      
+      if (count > 0) {
+        toast.info(`${count} unbekannte Sprecher wurden automatisch nummeriert`);
+      }
       
       // Lade Kalender-Teilnehmer aus dem Recording
       const rawRecording = recording as unknown as { 
