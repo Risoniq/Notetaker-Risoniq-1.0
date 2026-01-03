@@ -173,6 +173,44 @@ Deno.serve(async (req) => {
     // 7. Daten vorbereiten für Update
     const updates: Record<string, unknown> = { status: status }
 
+    // 7a. Kalender-Teilnehmer von Recall.ai abrufen und speichern
+    try {
+      const meetingsResponse = await fetch(`https://eu-central-1.recall.ai/api/v1/calendar/meetings/?bot_id=${recording.recall_bot_id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Token ${recallApiKey}`,
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      if (meetingsResponse.ok) {
+        const meetingsData = await meetingsResponse.json()
+        const meetings = Array.isArray(meetingsData) ? meetingsData : meetingsData.results || []
+        
+        if (meetings.length > 0) {
+          const calendarMeeting = meetings[0]
+          const attendees = calendarMeeting.meeting_attendees || calendarMeeting.attendees || []
+          
+          if (attendees.length > 0) {
+            // Speichere Teilnehmer mit Name und E-Mail
+            const calendarAttendees = attendees.map((a: { name?: string; email?: string; display_name?: string }) => ({
+              name: a.name || a.display_name || '',
+              email: a.email || ''
+            })).filter((a: { name: string }) => a.name.trim() !== '')
+            
+            if (calendarAttendees.length > 0) {
+              updates.calendar_attendees = calendarAttendees
+              console.log('Kalender-Teilnehmer gespeichert:', JSON.stringify(calendarAttendees, null, 2))
+            }
+          }
+        }
+      } else {
+        console.log('Kalender-Meetings konnten nicht abgerufen werden:', meetingsResponse.status)
+      }
+    } catch (calendarError) {
+      console.error('Fehler beim Abrufen der Kalender-Teilnehmer:', calendarError)
+    }
+
     // Wenn der Bot fertig ist ('done') ODER force_resync angefordert wurde, holen wir die Video- und Transkript-URLs sowie Teilnehmer
     if (status === 'done' || force_resync) {
       console.log('Bot ist fertig, extrahiere Media-URLs und Teilnehmer...')

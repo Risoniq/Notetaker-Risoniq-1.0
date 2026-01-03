@@ -55,6 +55,7 @@ export default function MeetingDetail() {
   const [detectedSpeakers, setDetectedSpeakers] = useState<string[]>([]);
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
   const [newSpeakerName, setNewSpeakerName] = useState('');
+  const [calendarAttendees, setCalendarAttendees] = useState<{ name: string; email: string }[]>([]);
 
   const fetchRecording = useCallback(async () => {
     if (!id) return null;
@@ -237,6 +238,12 @@ export default function MeetingDetail() {
       setEditedTranscript(recording.transcript_text);
       setIsEditingTranscript(true);
       setDetectedSpeakers(extractSpeakersFromTranscript(recording.transcript_text));
+      
+      // Lade Kalender-Teilnehmer aus dem Recording
+      const rawRecording = recording as unknown as { calendar_attendees?: { name: string; email: string }[] };
+      if (rawRecording.calendar_attendees && Array.isArray(rawRecording.calendar_attendees)) {
+        setCalendarAttendees(rawRecording.calendar_attendees);
+      }
     }
   };
 
@@ -249,6 +256,7 @@ export default function MeetingDetail() {
     setDetectedSpeakers([]);
     setEditingSpeaker(null);
     setNewSpeakerName('');
+    setCalendarAttendees([]);
   };
 
   // Sprecher im gesamten Transkript umbenennen
@@ -747,7 +755,7 @@ export default function MeetingDetail() {
                         {detectedSpeakers.map((speaker) => (
                           <div key={speaker} className="relative">
                             {editingSpeaker === speaker ? (
-                              <div className="flex items-center gap-1 bg-background border border-primary rounded-xl p-1">
+                              <div className="flex flex-col gap-2 bg-background border border-primary rounded-xl p-2 min-w-[200px]">
                                 <input
                                   type="text"
                                   value={newSpeakerName}
@@ -758,24 +766,52 @@ export default function MeetingDetail() {
                                     if (e.key === 'Enter') renameSpeaker(speaker, newSpeakerName);
                                     if (e.key === 'Escape') { setEditingSpeaker(null); setNewSpeakerName(''); }
                                   }}
-                                  className="px-2 py-1 text-sm bg-transparent border-0 focus:outline-none w-32"
+                                  className="px-3 py-2 text-sm bg-secondary/50 rounded-lg border-0 focus:outline-none focus:ring-2 focus:ring-primary/50 w-full"
                                 />
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0"
-                                  onClick={() => renameSpeaker(speaker, newSpeakerName)}
-                                >
-                                  <Check className="h-3 w-3" />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0"
-                                  onClick={() => { setEditingSpeaker(null); setNewSpeakerName(''); }}
-                                >
-                                  <X className="h-3 w-3" />
-                                </Button>
+                                
+                                {/* Kalender-Vorschläge */}
+                                {calendarAttendees.length > 0 && (
+                                  <div className="space-y-1">
+                                    <p className="text-xs text-muted-foreground px-1">Aus Kalender:</p>
+                                    <div className="max-h-32 overflow-y-auto space-y-1">
+                                      {calendarAttendees
+                                        .filter(a => a.name.toLowerCase() !== speaker.toLowerCase())
+                                        .map((attendee, idx) => (
+                                          <button
+                                            key={idx}
+                                            onClick={() => {
+                                              setNewSpeakerName(attendee.name);
+                                              renameSpeaker(speaker, attendee.name);
+                                            }}
+                                            className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-primary/10 transition-colors flex items-center gap-2"
+                                          >
+                                            <Users className="h-3 w-3 text-primary shrink-0" />
+                                            <span className="truncate">{attendee.name}</span>
+                                          </button>
+                                        ))
+                                      }
+                                    </div>
+                                  </div>
+                                )}
+                                
+                                <div className="flex justify-end gap-1 pt-1 border-t border-border">
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => { setEditingSpeaker(null); setNewSpeakerName(''); }}
+                                  >
+                                    Abbrechen
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => renameSpeaker(speaker, newSpeakerName)}
+                                  >
+                                    <Check className="h-3 w-3 mr-1" />
+                                    Anwenden
+                                  </Button>
+                                </div>
                               </div>
                             ) : (
                               <Badge
@@ -790,6 +826,12 @@ export default function MeetingDetail() {
                           </div>
                         ))}
                       </div>
+                      {calendarAttendees.length > 0 && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Sparkles className="h-3 w-3" />
+                          {calendarAttendees.length} Teilnehmer aus dem Kalender verfügbar
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Änderungen werden automatisch im gesamten Transkript übernommen.
                       </p>

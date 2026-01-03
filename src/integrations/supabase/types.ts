@@ -50,6 +50,7 @@ export type Database = {
       recordings: {
         Row: {
           action_items: string[] | null
+          calendar_attendees: Json | null
           created_at: string
           duration: number | null
           id: string
@@ -70,6 +71,7 @@ export type Database = {
         }
         Insert: {
           action_items?: string[] | null
+          calendar_attendees?: Json | null
           created_at?: string
           duration?: number | null
           id?: string
@@ -90,6 +92,7 @@ export type Database = {
         }
         Update: {
           action_items?: string[] | null
+          calendar_attendees?: Json | null
           created_at?: string
           duration?: number | null
           id?: string
