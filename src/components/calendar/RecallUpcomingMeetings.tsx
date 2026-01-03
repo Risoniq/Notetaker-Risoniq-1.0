@@ -125,9 +125,9 @@ export const RecallUpcomingMeetings = ({
         <div className="w-12 h-12 bg-muted rounded-full flex items-center justify-center mx-auto mb-3">
           <Video size={24} className="text-muted-foreground" />
         </div>
-        <h3 className="font-medium text-foreground mb-1">Keine anstehenden Meetings</h3>
+        <h3 className="font-medium text-foreground mb-1">Keine anstehenden Termine</h3>
         <p className="text-sm text-muted-foreground">
-          Meetings mit Video-Links erscheinen hier automatisch
+          Kalendertermine erscheinen hier automatisch. Der Bot tritt nur Terminen mit Meeting-Link bei.
         </p>
       </div>
     );
