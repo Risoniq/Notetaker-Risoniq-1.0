@@ -42,6 +42,7 @@ export function useRecallCalendarMeetings() {
   });
   
   const lastFetchRef = useRef<number>(0);
+  const pendingFetchRef = useRef<boolean>(false);
 
   // Get authenticated user
   useEffect(() => {
@@ -59,11 +60,17 @@ export function useRecallCalendarMeetings() {
   }, []);
 
   const fetchMeetings = useCallback(async () => {
-    if (!authUser?.id) return;
+    // If authUser not ready, mark pending and return
+    if (!authUser?.id) {
+      pendingFetchRef.current = true;
+      console.log('[useRecallCalendarMeetings] fetchMeetings called but authUser not ready, marking pending');
+      return;
+    }
 
     try {
       setIsLoading(true);
       setMeetingsError(null);
+      console.log('[useRecallCalendarMeetings] Fetching meetings for user:', authUser.id);
       const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
         body: { action: 'list', supabase_user_id: authUser.id },
       });
@@ -71,6 +78,7 @@ export function useRecallCalendarMeetings() {
       if (funcError) throw funcError;
 
       if (data.success) {
+        console.log('[useRecallCalendarMeetings] Loaded meetings:', data.meetings?.length || 0);
         setMeetings(data.meetings || []);
         setMeetingsError(null);
       } else {
@@ -101,6 +109,15 @@ export function useRecallCalendarMeetings() {
       setIsLoading(false);
     }
   }, [authUser?.id]);
+
+  // Execute pending fetch when authUser becomes available
+  useEffect(() => {
+    if (authUser?.id && pendingFetchRef.current) {
+      console.log('[useRecallCalendarMeetings] authUser now available, executing pending fetch');
+      pendingFetchRef.current = false;
+      fetchMeetings();
+    }
+  }, [authUser?.id, fetchMeetings]);
 
   const updateMeetingRecording = useCallback(async (meetingId: string, shouldRecord: boolean) => {
     if (!authUser?.id) return;

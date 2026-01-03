@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { Calendar } from '@/components/ui/calendar';
-import { format, isSameDay } from 'date-fns';
+import { format, parse } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { RecallMeeting } from '@/hooks/useRecallCalendarMeetings';
 import { Badge } from '@/components/ui/badge';
+import { Video, VideoOff } from 'lucide-react';
 
 interface CalendarMonthViewProps {
   meetings: RecallMeeting[];
@@ -16,21 +17,31 @@ export const CalendarMonthView = ({
   selectedDate, 
   onDateSelect 
 }: CalendarMonthViewProps) => {
-  // Group meetings by date
-  const meetingsByDate = useMemo(() => {
+  // Group meetings by date and track which have links
+  const { meetingsByDate, datesWithLink, datesWithoutLink } = useMemo(() => {
     const map = new Map<string, RecallMeeting[]>();
+    const withLink = new Set<string>();
+    const withoutLink = new Set<string>();
+    
     meetings.forEach(meeting => {
       const dateKey = format(new Date(meeting.start_time), 'yyyy-MM-dd');
       const existing = map.get(dateKey) || [];
       map.set(dateKey, [...existing, meeting]);
+      
+      // Track if this date has meetings with/without links
+      if (meeting.meeting_url) {
+        withLink.add(dateKey);
+      } else {
+        withoutLink.add(dateKey);
+      }
     });
-    return map;
+    
+    return {
+      meetingsByDate: map,
+      datesWithLink: Array.from(withLink).map(dateStr => parse(dateStr, 'yyyy-MM-dd', new Date())),
+      datesWithoutLink: Array.from(withoutLink).map(dateStr => parse(dateStr, 'yyyy-MM-dd', new Date())),
+    };
   }, [meetings]);
-
-  // Get dates that have meetings
-  const datesWithMeetings = useMemo(() => {
-    return Array.from(meetingsByDate.keys()).map(dateStr => new Date(dateStr));
-  }, [meetingsByDate]);
 
   // Count meetings for selected date
   const selectedDateMeetings = useMemo(() => {
@@ -39,15 +50,34 @@ export const CalendarMonthView = ({
     return meetingsByDate.get(dateKey) || [];
   }, [selectedDate, meetingsByDate]);
 
+  // Count meetings with/without links for selected date
+  const { withLinkCount, withoutLinkCount } = useMemo(() => {
+    const withLink = selectedDateMeetings.filter(m => m.meeting_url).length;
+    const withoutLink = selectedDateMeetings.filter(m => !m.meeting_url).length;
+    return { withLinkCount: withLink, withoutLinkCount: withoutLink };
+  }, [selectedDateMeetings]);
+
   return (
     <div className="bg-card rounded-xl border border-border p-4">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-2">
         <h3 className="text-lg font-semibold text-foreground">Kalender</h3>
         {selectedDate && selectedDateMeetings.length > 0 && (
           <Badge variant="secondary">
-            {selectedDateMeetings.length} Meeting{selectedDateMeetings.length !== 1 ? 's' : ''}
+            {selectedDateMeetings.length} Termin{selectedDateMeetings.length !== 1 ? 'e' : ''}
           </Badge>
         )}
+      </div>
+      
+      {/* Legend */}
+      <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-primary" />
+          <span>Bot kann beitreten</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-500" />
+          <span>Kein Link</span>
+        </div>
       </div>
       
       <Calendar
@@ -56,10 +86,12 @@ export const CalendarMonthView = ({
         onSelect={onDateSelect}
         locale={de}
         modifiers={{
-          hasMeeting: datesWithMeetings
+          hasLinkMeeting: datesWithLink,
+          hasNoLinkMeeting: datesWithoutLink,
         }}
         modifiersClassNames={{
-          hasMeeting: 'after:absolute after:bottom-0.5 after:left-1/2 after:-translate-x-1/2 after:w-1.5 after:h-1.5 after:rounded-full after:bg-primary'
+          hasLinkMeeting: 'after:absolute after:bottom-0.5 after:left-[calc(50%-4px)] after:w-1.5 after:h-1.5 after:rounded-full after:bg-primary',
+          hasNoLinkMeeting: 'before:absolute before:bottom-0.5 before:left-[calc(50%+2px)] before:w-1.5 before:h-1.5 before:rounded-full before:bg-amber-500',
         }}
         className="rounded-md"
       />
@@ -71,12 +103,23 @@ export const CalendarMonthView = ({
           </p>
           {selectedDateMeetings.length === 0 ? (
             <p className="text-sm text-muted-foreground mt-2">
-              Keine Meetings an diesem Tag
+              Keine Termine an diesem Tag
             </p>
           ) : (
-            <p className="text-sm text-foreground mt-2">
-              {selectedDateMeetings.length} Meeting{selectedDateMeetings.length !== 1 ? 's' : ''} geplant
-            </p>
+            <div className="mt-2 space-y-1">
+              {withLinkCount > 0 && (
+                <p className="text-sm text-foreground flex items-center gap-1.5">
+                  <Video className="h-3.5 w-3.5 text-primary" />
+                  {withLinkCount} mit Meeting-Link
+                </p>
+              )}
+              {withoutLinkCount > 0 && (
+                <p className="text-sm text-muted-foreground flex items-center gap-1.5">
+                  <VideoOff className="h-3.5 w-3.5 text-amber-500" />
+                  {withoutLinkCount} ohne Link
+                </p>
+              )}
+            </div>
           )}
         </div>
       )}
