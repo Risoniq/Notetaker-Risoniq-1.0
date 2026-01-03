@@ -57,6 +57,7 @@ export default function MeetingDetail() {
   const [newSpeakerName, setNewSpeakerName] = useState('');
   const [calendarAttendees, setCalendarAttendees] = useState<{ name: string; email: string }[]>([]);
   const [dbParticipantSuggestions, setDbParticipantSuggestions] = useState<{ id: string; name: string }[]>([]);
+  const [expectedSpeakerCount, setExpectedSpeakerCount] = useState<number>(0);
 
   const fetchRecording = useCallback(async () => {
     if (!id) return null;
@@ -295,12 +296,19 @@ export default function MeetingDetail() {
       };
       if (rawRecording.calendar_attendees && Array.isArray(rawRecording.calendar_attendees)) {
         setCalendarAttendees(rawRecording.calendar_attendees);
+        // Erwartete Sprecheranzahl = Kalender-Teilnehmer
+        setExpectedSpeakerCount(rawRecording.calendar_attendees.length);
       }
       // Lade DB-Teilnehmer als Vorschläge (Speaker-IDs von Recall.ai)
       if (rawRecording.participants && Array.isArray(rawRecording.participants)) {
-        setDbParticipantSuggestions(rawRecording.participants.filter(p => 
+        const validParticipants = rawRecording.participants.filter(p => 
           p.name && p.name.trim() !== '' && !p.name.startsWith('Sprecher ') && p.name !== 'Unbekannt'
-        ));
+        );
+        setDbParticipantSuggestions(validParticipants);
+        // Falls keine Kalender-Teilnehmer, nutze DB-Teilnehmer für Erwartung
+        if (!rawRecording.calendar_attendees?.length && validParticipants.length > 0) {
+          setExpectedSpeakerCount(validParticipants.length);
+        }
       }
     }
   };
@@ -316,6 +324,7 @@ export default function MeetingDetail() {
     setNewSpeakerName('');
     setCalendarAttendees([]);
     setDbParticipantSuggestions([]);
+    setExpectedSpeakerCount(0);
   };
 
   // Sprecher im gesamten Transkript umbenennen
@@ -803,12 +812,17 @@ export default function MeetingDetail() {
                   {/* Erkannte Sprecher - Schnellbearbeitung */}
                   {isEditingTranscript && detectedSpeakers.length > 0 && (
                     <div className="p-4 rounded-2xl bg-secondary/50 border border-border space-y-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <Users className="h-4 w-4 text-muted-foreground" />
                         <p className="text-sm font-medium text-foreground">Erkannte Sprecher</p>
                         <span className="text-xs text-muted-foreground">
                           (Klicke zum Umbenennen)
                         </span>
+                        {expectedSpeakerCount > 0 && (
+                          <Badge variant="outline" className="text-xs">
+                            {detectedSpeakers.length} von {expectedSpeakerCount} Teilnehmern erkannt
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {detectedSpeakers.map((speakerData) => (
