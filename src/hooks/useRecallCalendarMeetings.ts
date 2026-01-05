@@ -52,8 +52,16 @@ export function useRecallCalendarMeetings() {
     };
     getUser();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setAuthUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      const newUser = session?.user ?? null;
+      setAuthUser(newUser);
+      
+      // Clear meetings when user logs out to prevent stale data/errors
+      if (event === 'SIGNED_OUT' || !newUser) {
+        setMeetings([]);
+        setMeetingsError(null);
+        pendingFetchRef.current = false;
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -96,6 +104,15 @@ export function useRecallCalendarMeetings() {
     } catch (err: any) {
       console.error('[useRecallCalendarMeetings] Error fetching meetings:', err);
       const errorMsg = err.message || '';
+      
+      // Handle 401 Unauthorized - user session expired/invalid
+      if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
+        // Don't show error, just clear state - user needs to re-authenticate
+        setMeetings([]);
+        setMeetingsError(null);
+        return;
+      }
+      
       let friendlyError = 'Meetings konnten nicht geladen werden.';
 
       if (errorMsg.includes('not_authenticated') || errorMsg.includes('credentials')) {
