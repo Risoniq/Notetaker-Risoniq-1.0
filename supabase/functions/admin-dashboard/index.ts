@@ -103,6 +103,15 @@ Deno.serve(async (req) => {
       console.error('Presence fetch error:', presenceError);
     }
 
+    // Fetch user roles (approved status)
+    const { data: userRoles, error: rolesError2 } = await supabaseAdmin
+      .from('user_roles')
+      .select('user_id, role');
+
+    if (rolesError2) {
+      console.error('User roles fetch error:', rolesError2);
+    }
+
     // Active bot statuses
     const activeBotStatuses = ['joining', 'in_call_not_recording', 'in_call_recording', 'waiting_room'];
     
@@ -151,6 +160,20 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Build roles map - track if user is approved or admin
+    const rolesMap = new Map<string, { isApproved: boolean; isAdmin: boolean }>();
+    if (userRoles) {
+      for (const ur of userRoles) {
+        const existing = rolesMap.get(ur.user_id) || { isApproved: false, isAdmin: false };
+        if (ur.role === 'approved') existing.isApproved = true;
+        if (ur.role === 'admin') {
+          existing.isAdmin = true;
+          existing.isApproved = true; // Admins are always considered approved
+        }
+        rolesMap.set(ur.user_id, existing);
+      }
+    }
+
     // Determine online status (online if heartbeat within last 60 seconds)
     const ONLINE_TIMEOUT = 60000; // 60 seconds
     const now = Date.now();
@@ -180,6 +203,7 @@ Deno.serve(async (req) => {
       const stats = recordingsMap.get(user.id) || { count: 0, duration: 0, words: 0, lastActivity: null, hasActiveBot: false };
       const calendar = calendarMap.get(user.id) || { google: false, microsoft: false };
       const onlineStatus = getUserOnlineStatus(user.id);
+      const roles = rolesMap.get(user.id) || { isApproved: false, isAdmin: false };
 
       return {
         id: user.id,
@@ -192,6 +216,8 @@ Deno.serve(async (req) => {
         google_connected: calendar.google,
         microsoft_connected: calendar.microsoft,
         online_status: onlineStatus,
+        is_approved: roles.isApproved,
+        is_admin: roles.isAdmin,
       };
     });
 
