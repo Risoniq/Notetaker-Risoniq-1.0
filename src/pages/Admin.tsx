@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, FileText, Clock, Activity, Calendar } from 'lucide-react';
+import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -13,6 +13,17 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
@@ -27,6 +38,8 @@ interface UserData {
   google_connected: boolean;
   microsoft_connected: boolean;
   online_status: 'online' | 'recording' | 'offline';
+  is_approved: boolean;
+  is_admin: boolean;
 }
 
 interface Summary {
@@ -44,42 +57,115 @@ const Admin = () => {
   const [users, setUsers] = useState<UserData[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const fetchData = async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        navigate('/auth');
+        return;
+      }
+
+      const response = await supabase.functions.invoke('admin-dashboard', {
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message || 'Failed to fetch admin data');
+      }
+
+      setUsers(response.data.users || []);
+      setSummary(response.data.summary || null);
+    } catch (err: any) {
+      console.error('Admin dashboard error:', err);
+      toast({
+        title: 'Fehler',
+        description: err.message || 'Daten konnten nicht geladen werden',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (!sessionData.session) {
-          navigate('/auth');
-          return;
-        }
-
-        const response = await supabase.functions.invoke('admin-dashboard', {
-          headers: {
-            Authorization: `Bearer ${sessionData.session.access_token}`,
-          },
-        });
-
-        if (response.error) {
-          throw new Error(response.error.message || 'Failed to fetch admin data');
-        }
-
-        setUsers(response.data.users || []);
-        setSummary(response.data.summary || null);
-      } catch (err: any) {
-        console.error('Admin dashboard error:', err);
-        toast({
-          title: 'Fehler',
-          description: err.message || 'Daten konnten nicht geladen werden',
-          variant: 'destructive',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchData();
   }, [navigate, toast]);
+
+  const handleApprove = async (userId: string, action: 'approve' | 'revoke') => {
+    setActionLoading(userId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await supabase.functions.invoke('admin-approve-user', {
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: { user_id: userId, action },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      toast({
+        title: action === 'approve' ? 'Benutzer freigeschaltet' : 'Freischaltung aufgehoben',
+        description: action === 'approve' 
+          ? 'Der Benutzer kann jetzt den Notetaker nutzen.' 
+          : 'Der Benutzer kann den Notetaker nicht mehr nutzen.',
+      });
+
+      // Refresh data
+      await fetchData();
+    } catch (err: any) {
+      toast({
+        title: 'Fehler',
+        description: err.message || 'Aktion fehlgeschlagen',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDelete = async (userId: string) => {
+    setActionLoading(userId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await supabase.functions.invoke('admin-delete-user', {
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+        },
+        body: { user_id: userId },
+      });
+
+      if (response.error) {
+        throw new Error(response.error.message);
+      }
+
+      toast({
+        title: 'Benutzer gelöscht',
+        description: 'Der Benutzer und alle zugehörigen Daten wurden gelöscht.',
+      });
+
+      // Refresh data
+      await fetchData();
+    } catch (err: any) {
+      toast({
+        title: 'Fehler',
+        description: err.message || 'Löschen fehlgeschlagen',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '–';
@@ -103,6 +189,16 @@ const Admin = () => {
   const formatNumber = (num: number) => {
     if (!num) return '0';
     return num.toLocaleString('de-DE');
+  };
+
+  const getStatusBadge = (user: UserData) => {
+    if (user.is_admin) {
+      return <Badge className="bg-purple-500 hover:bg-purple-600"><Shield className="h-3 w-3 mr-1" />Admin</Badge>;
+    }
+    if (user.is_approved) {
+      return <Badge className="bg-green-500 hover:bg-green-600"><CheckCircle className="h-3 w-3 mr-1" />Freigeschaltet</Badge>;
+    }
+    return <Badge variant="secondary" className="bg-amber-100 text-amber-800"><Clock className="h-3 w-3 mr-1" />Wartet</Badge>;
   };
 
   return (
@@ -206,12 +302,12 @@ const Admin = () => {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Benutzer</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead>Registriert</TableHead>
                       <TableHead className="text-right">Aufnahmen</TableHead>
                       <TableHead className="text-right">Dauer</TableHead>
-                      <TableHead className="text-right">Wörter</TableHead>
                       <TableHead>Kalender</TableHead>
-                      <TableHead>Letzte Aktivität</TableHead>
+                      <TableHead>Aktionen</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -234,11 +330,10 @@ const Admin = () => {
                             )}
                           </div>
                         </TableCell>
-                        
+                        <TableCell>{getStatusBadge(user)}</TableCell>
                         <TableCell>{formatDate(user.created_at)}</TableCell>
                         <TableCell className="text-right">{user.recordings_count}</TableCell>
                         <TableCell className="text-right">{formatDuration(user.total_duration)}</TableCell>
-                        <TableCell className="text-right">{formatNumber(user.total_words)}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             {user.google_connected && (
@@ -258,7 +353,64 @@ const Admin = () => {
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>{formatDate(user.last_activity)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            {!user.is_admin && (
+                              <>
+                                {user.is_approved ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleApprove(user.id, 'revoke')}
+                                    disabled={actionLoading === user.id}
+                                  >
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    Sperren
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={() => handleApprove(user.id, 'approve')}
+                                    disabled={actionLoading === user.id}
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-1" />
+                                    Freischalten
+                                  </Button>
+                                )}
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      disabled={actionLoading === user.id}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Benutzer löschen?</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Möchtest du den Benutzer <strong>{user.email}</strong> wirklich löschen? 
+                                        Alle Aufnahmen, Transkripte und Daten werden unwiderruflich gelöscht.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDelete(user.id)}
+                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                      >
+                                        Endgültig löschen
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                     {users.length === 0 && (
