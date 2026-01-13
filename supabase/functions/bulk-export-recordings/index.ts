@@ -1,5 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+interface BulkParams {
+  limit?: number
+  since?: string
+  user_id?: string
+}
+
 const getCorsHeaders = (req: Request) => {
   const origin = req.headers.get('origin') || ''
   const allowedOrigins = [
@@ -12,29 +18,10 @@ const getCorsHeaders = (req: Request) => {
                     origin.includes('lovable.app')
   
   return {
-    'Access-Control-Allow-Origin': isAllowed ? origin : 'https://lovable.dev',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Origin': isAllowed ? origin : '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-export-secret',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
   }
-}
-
-const authenticateUser = async (req: Request) => {
-  const authHeader = req.headers.get('Authorization')
-  if (!authHeader) {
-    return { user: null, error: 'Missing authorization header' }
-  }
-
-  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-  const supabaseKey = Deno.env.get('SUPABASE_ANON_KEY')!
-  const supabase = createClient(supabaseUrl, supabaseKey, {
-    global: { headers: { Authorization: authHeader } }
-  })
-
-  const { data: { user }, error } = await supabase.auth.getUser()
-  if (error || !user) {
-    return { user: null, error: 'Invalid token' }
-  }
-  return { user, error: null }
 }
 
 Deno.serve(async (req) => {
@@ -45,29 +32,47 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Authentifizierung
-    const { user, error: authError } = await authenticateUser(req)
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: authError }), {
+    // Secret-basierte Authentifizierung
+    const exportSecret = Deno.env.get('TRANSCRIPT_EXPORT_SECRET')
+    const providedSecret = req.headers.get('x-export-secret') ?? ''
+    
+    if (!exportSecret || providedSecret !== exportSecret) {
+      console.error('Unauthorized: Invalid or missing x-export-secret')
+      return new Response(JSON.stringify({ error: 'unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    console.log('Bulk-Export gestartet für User:', user.id)
+    console.log('Bulk-Export gestartet (Secret-Auth)')
 
-    // Supabase Client erstellen
+    // Parameter aus Body
+    const { limit = 50, since, user_id }: BulkParams = await req.json().catch(() => ({}))
+
+    // Supabase Client mit Service Role Key
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Alle "done" Recordings laden
-    const { data: recordings, error: fetchError } = await supabase
+    // Query aufbauen
+    let query = supabase
       .from('recordings')
       .select('*')
       .eq('status', 'done')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: true })
+      .limit(limit)
+
+    // Optional: Filter nach User
+    if (user_id) {
+      query = query.eq('user_id', user_id)
+    }
+
+    // Optional: Filter nach Datum
+    if (since) {
+      query = query.gte('created_at', since)
+    }
+
+    const { data: recordings, error: fetchError } = await query
 
     if (fetchError) {
       console.error('Fehler beim Laden der Recordings:', fetchError)
@@ -81,23 +86,21 @@ Deno.serve(async (req) => {
 
     if (!recordings || recordings.length === 0) {
       return new Response(JSON.stringify({ 
-        success: true, 
         message: 'Keine Recordings zum Exportieren gefunden',
         exported: 0,
-        failed: 0 
+        attempted: 0 
       }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Export-Konfiguration prüfen
+    // Export-URL prüfen
     const exportUrl = Deno.env.get('TRANSCRIPT_EXPORT_URL')
-    const exportSecret = Deno.env.get('TRANSCRIPT_EXPORT_SECRET')
 
-    if (!exportUrl || !exportSecret) {
+    if (!exportUrl) {
       return new Response(JSON.stringify({ 
-        error: 'Export-Konfiguration nicht vollständig (TRANSCRIPT_EXPORT_URL oder TRANSCRIPT_EXPORT_SECRET fehlt)' 
+        error: 'TRANSCRIPT_EXPORT_URL nicht konfiguriert' 
       }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -105,17 +108,12 @@ Deno.serve(async (req) => {
     }
 
     // Jedes Recording exportieren
-    const results = {
-      exported: 0,
-      failed: 0,
-      details: [] as { id: string; title: string; success: boolean; error?: string }[]
-    }
+    const results: Array<{ id: string; title: string; ok: boolean; status: number; error?: string }> = []
 
     for (const recording of recordings) {
       try {
-        console.log(`Exportiere Recording: ${recording.id} - ${recording.title || 'Ohne Titel'}`)
+        console.log(`Exportiere: ${recording.id} - ${recording.title || 'Ohne Titel'}`)
 
-        // Export-Daten zusammenstellen
         const exportData = {
           recording_id: recording.id,
           user_id: recording.user_id,
@@ -137,7 +135,6 @@ Deno.serve(async (req) => {
           recall_bot_id: recording.recall_bot_id,
         }
 
-        // An externe API senden
         const exportResponse = await fetch(exportUrl, {
           method: 'POST',
           headers: {
@@ -147,50 +144,39 @@ Deno.serve(async (req) => {
           body: JSON.stringify(exportData),
         })
 
-        if (exportResponse.ok) {
-          results.exported++
-          results.details.push({
-            id: recording.id,
-            title: recording.title || 'Ohne Titel',
-            success: true,
-          })
-          console.log(`✓ Export erfolgreich: ${recording.id}`)
-        } else {
-          const errorText = await exportResponse.text()
-          results.failed++
-          results.details.push({
-            id: recording.id,
-            title: recording.title || 'Ohne Titel',
-            success: false,
-            error: `${exportResponse.status}: ${errorText}`,
-          })
-          console.error(`✗ Export fehlgeschlagen: ${recording.id} - ${exportResponse.status}: ${errorText}`)
-        }
-
-        // Kleine Pause zwischen Requests (Rate Limiting vermeiden)
-        await new Promise(resolve => setTimeout(resolve, 500))
-
-      } catch (recordingError) {
-        results.failed++
-        results.details.push({
+        results.push({
           id: recording.id,
           title: recording.title || 'Ohne Titel',
-          success: false,
-          error: String(recordingError),
+          ok: exportResponse.ok,
+          status: exportResponse.status,
+          error: exportResponse.ok ? undefined : await exportResponse.text(),
         })
-        console.error(`✗ Fehler beim Export von ${recording.id}:`, recordingError)
+
+        console.log(`${exportResponse.ok ? '✓' : '✗'} ${recording.id}: ${exportResponse.status}`)
+
+        // Rate Limiting
+        await new Promise(resolve => setTimeout(resolve, 300))
+
+      } catch (err) {
+        results.push({
+          id: recording.id,
+          title: recording.title || 'Ohne Titel',
+          ok: false,
+          status: 0,
+          error: String(err),
+        })
+        console.error(`✗ Fehler bei ${recording.id}:`, err)
       }
     }
 
-    console.log(`Bulk-Export abgeschlossen: ${results.exported} erfolgreich, ${results.failed} fehlgeschlagen`)
+    const exported = results.filter(r => r.ok).length
+    console.log(`Bulk-Export abgeschlossen: ${exported}/${recordings.length} erfolgreich`)
 
     return new Response(JSON.stringify({
-      success: true,
-      message: `Bulk-Export abgeschlossen`,
-      exported: results.exported,
-      failed: results.failed,
-      total: recordings.length,
-      details: results.details,
+      message: 'Bulk-Export abgeschlossen',
+      exported,
+      attempted: recordings.length,
+      details: results,
     }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -198,7 +184,7 @@ Deno.serve(async (req) => {
 
   } catch (error) {
     console.error('Unerwarteter Fehler:', error)
-    return new Response(JSON.stringify({ error: 'Interner Serverfehler' }), {
+    return new Response(JSON.stringify({ error: 'internal_error', message: String(error) }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
