@@ -174,74 +174,188 @@ serve(async (req) => {
       const extractMeetingUrl = (meeting: any): string | null => {
         // Direct meeting_url if available
         if (meeting.meeting_url) {
+          console.log('[extractUrl] Found direct meeting_url:', meeting.meeting_url);
           return meeting.meeting_url;
+        }
+        
+        // Direct join_url if available
+        if (meeting.join_url) {
+          console.log('[extractUrl] Found direct join_url:', meeting.join_url);
+          return meeting.join_url;
         }
         
         // Microsoft Teams: Build URL from teams_invite
         if (meeting.teams_invite?.meeting_id) {
           const password = meeting.teams_invite.meeting_password || '';
-          return `https://teams.live.com/meet/${meeting.teams_invite.meeting_id}${password ? `?p=${password}` : ''}`;
+          const url = `https://teams.live.com/meet/${meeting.teams_invite.meeting_id}${password ? `?p=${password}` : ''}`;
+          console.log('[extractUrl] Built Teams URL from invite:', url);
+          return url;
         }
         
         // Zoom: Build URL from zoom_invite
         if (meeting.zoom_invite?.meeting_id) {
-          return `https://zoom.us/j/${meeting.zoom_invite.meeting_id}`;
+          const url = `https://zoom.us/j/${meeting.zoom_invite.meeting_id}`;
+          console.log('[extractUrl] Built Zoom URL from invite:', url);
+          return url;
         }
         
         // Google Meet: Build URL from meet_invite
         if (meeting.meet_invite?.meeting_code) {
-          return `https://meet.google.com/${meeting.meet_invite.meeting_code}`;
+          const url = `https://meet.google.com/${meeting.meet_invite.meeting_code}`;
+          console.log('[extractUrl] Built Meet URL from invite:', url);
+          return url;
         }
         
         // WebEx: Build URL from webex_invite
         if (meeting.webex_invite?.meeting_link) {
+          console.log('[extractUrl] Found Webex invite link:', meeting.webex_invite.meeting_link);
           return meeting.webex_invite.meeting_link;
         }
         
         // GoTo Meeting: Build URL from goto_meeting_invite
         if (meeting.goto_meeting_invite?.meeting_id) {
-          return `https://www.gotomeet.me/${meeting.goto_meeting_invite.meeting_id}`;
+          const url = `https://www.gotomeet.me/${meeting.goto_meeting_invite.meeting_id}`;
+          console.log('[extractUrl] Built GoTo URL from invite:', url);
+          return url;
         }
         
-        // Fallback: Try to extract from description (HTML and plaintext)
-        if (meeting.description) {
-          // Look for Teams meeting links - multiple patterns
+        // ============ RAW OBJECT EXTRACTION ============
+        
+        // Google Calendar: hangoutLink (direct Google Meet link)
+        if (meeting.raw?.hangoutLink) {
+          console.log('[extractUrl] Found raw.hangoutLink:', meeting.raw.hangoutLink);
+          return meeting.raw.hangoutLink;
+        }
+        
+        // Google Calendar: conferenceData.entryPoints
+        if (meeting.raw?.conferenceData?.entryPoints) {
+          const videoEntry = meeting.raw.conferenceData.entryPoints.find(
+            (ep: any) => ep.entryPointType === 'video'
+          );
+          if (videoEntry?.uri) {
+            console.log('[extractUrl] Found raw.conferenceData video entry:', videoEntry.uri);
+            return videoEntry.uri;
+          }
+        }
+        
+        // Microsoft Graph: onlineMeeting.joinUrl
+        if (meeting.raw?.onlineMeeting?.joinUrl) {
+          console.log('[extractUrl] Found raw.onlineMeeting.joinUrl:', meeting.raw.onlineMeeting.joinUrl);
+          return meeting.raw.onlineMeeting.joinUrl;
+        }
+        
+        // Microsoft Graph: onlineMeetingUrl (alternative field)
+        if (meeting.raw?.onlineMeetingUrl) {
+          console.log('[extractUrl] Found raw.onlineMeetingUrl:', meeting.raw.onlineMeetingUrl);
+          return meeting.raw.onlineMeetingUrl;
+        }
+        
+        // ============ TEXT FIELD EXTRACTION ============
+        
+        // Collect all text fields to search for URLs
+        const textSources = [
+          meeting.description || '',
+          meeting.location || '',
+          meeting.notes || '',
+          meeting.raw?.description || '',
+          meeting.raw?.body?.content || '',
+          meeting.raw?.bodyPreview || '',
+          meeting.raw?.location?.displayName || '',
+          meeting.raw?.locations?.[0]?.displayName || '',
+        ];
+        
+        const allText = textSources.join(' ');
+        
+        if (allText.trim()) {
+          console.log('[extractUrl] Searching text fields for meeting:', meeting.title, 'Text length:', allText.length);
+          
+          // Teams patterns (multiple formats)
           const teamsPatterns = [
-            /href="(https:\/\/teams\.(microsoft|live)\.com\/[^"]+)"/,
-            /href="(https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^"]+)"/,
-            /(https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^\s<"]+)/,
-            /(https:\/\/teams\.live\.com\/meet\/[^\s<"]+)/,
+            /href="(https:\/\/teams\.(microsoft|live)\.com\/[^"]+)"/i,
+            /href="(https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^"]+)"/i,
+            /(https:\/\/teams\.microsoft\.com\/l\/meetup-join\/[^\s<"']+)/i,
+            /(https:\/\/teams\.live\.com\/meet\/[^\s<"']+)/i,
+            /(https:\/\/teams\.microsoft\.com\/meet\/[^\s<"']+)/i,
           ];
           for (const pattern of teamsPatterns) {
-            const match = meeting.description.match(pattern);
-            if (match) return match[1];
+            const match = allText.match(pattern);
+            if (match) {
+              console.log('[extractUrl] Found Teams URL in text:', match[1]);
+              return match[1];
+            }
           }
           
-          // Look for Zoom link
+          // Zoom patterns (multiple formats)
           const zoomPatterns = [
-            /href="(https:\/\/[\w.]*zoom\.us\/[^"]+)"/,
-            /(https:\/\/[\w.]*zoom\.us\/j\/[^\s<"]+)/,
+            /href="(https:\/\/[\w.-]*zoom\.us\/[^"]+)"/i,
+            /(https:\/\/[\w.-]*zoom\.us\/j\/[^\s<"']+)/i,
+            /(https:\/\/[\w.-]*zoom\.us\/s\/[^\s<"']+)/i,
+            /(https:\/\/[\w.-]*zoom\.us\/my\/[^\s<"']+)/i,
           ];
           for (const pattern of zoomPatterns) {
-            const match = meeting.description.match(pattern);
-            if (match) return match[1];
+            const match = allText.match(pattern);
+            if (match) {
+              console.log('[extractUrl] Found Zoom URL in text:', match[1]);
+              return match[1];
+            }
           }
           
-          // Look for Google Meet link
+          // Google Meet patterns
           const meetPatterns = [
-            /href="(https:\/\/meet\.google\.com\/[^"]+)"/,
-            /(https:\/\/meet\.google\.com\/[a-z-]+)/i,
+            /href="(https:\/\/meet\.google\.com\/[^"]+)"/i,
+            /(https:\/\/meet\.google\.com\/[a-z]+-[a-z]+-[a-z]+)/i,
+            /(https:\/\/meet\.google\.com\/[a-z0-9-]+)/i,
           ];
           for (const pattern of meetPatterns) {
-            const match = meeting.description.match(pattern);
-            if (match) return match[1];
+            const match = allText.match(pattern);
+            if (match) {
+              console.log('[extractUrl] Found Google Meet URL in text:', match[1]);
+              return match[1];
+            }
           }
           
-          // Look for Webex link
-          const webexMatch = meeting.description.match(/(https:\/\/[\w.]*webex\.com\/[^\s<"]+)/);
-          if (webexMatch) return webexMatch[1];
+          // Webex patterns
+          const webexPatterns = [
+            /(https:\/\/[\w.-]*webex\.com\/[^\s<"']+)/i,
+            /(https:\/\/[\w.-]*webex\.com\/meet\/[^\s<"']+)/i,
+          ];
+          for (const pattern of webexPatterns) {
+            const match = allText.match(pattern);
+            if (match) {
+              console.log('[extractUrl] Found Webex URL in text:', match[1]);
+              return match[1];
+            }
+          }
+          
+          // Whereby patterns
+          const wherebyMatch = allText.match(/(https:\/\/whereby\.com\/[^\s<"']+)/i);
+          if (wherebyMatch) {
+            console.log('[extractUrl] Found Whereby URL in text:', wherebyMatch[1]);
+            return wherebyMatch[1];
+          }
+          
+          // GoTo Meeting patterns
+          const gotoPatterns = [
+            /(https:\/\/[\w.-]*gotomeet\.me\/[^\s<"']+)/i,
+            /(https:\/\/[\w.-]*gotomeeting\.com\/[^\s<"']+)/i,
+          ];
+          for (const pattern of gotoPatterns) {
+            const match = allText.match(pattern);
+            if (match) {
+              console.log('[extractUrl] Found GoTo URL in text:', match[1]);
+              return match[1];
+            }
+          }
+          
+          // BlueJeans patterns
+          const bluejeanMatch = allText.match(/(https:\/\/[\w.-]*bluejeans\.com\/[^\s<"']+)/i);
+          if (bluejeanMatch) {
+            console.log('[extractUrl] Found BlueJeans URL in text:', bluejeanMatch[1]);
+            return bluejeanMatch[1];
+          }
         }
         
+        console.log('[extractUrl] No meeting URL found for:', meeting.title);
         return null;
       };
 
