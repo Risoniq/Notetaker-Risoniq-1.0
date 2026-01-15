@@ -5,8 +5,9 @@ import { RecordingsList } from "@/components/recordings/RecordingsList";
 import { RecentActivityList } from "@/components/recordings/RecentActivityList";
 import { RecallCalendarView } from "@/components/calendar/RecallCalendarView";
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
+import { DesktopRecordingTab } from "@/components/desktop/DesktopRecordingTab";
 import { Toaster } from "@/components/ui/toaster";
-import { Calendar, Mic, RefreshCw } from "lucide-react";
+import { Calendar, Mic, Monitor, RefreshCw } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -55,9 +56,9 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Main Content with Tabs */}
+        {/* Main Content with Tabs - 3 columns */}
         <Tabs defaultValue="calendar" className="w-full">
-          <TabsList className="grid w-full grid-cols-2 mb-6 bg-white/50 dark:bg-slate-800/50 backdrop-blur-md rounded-xl p-1">
+          <TabsList className="grid w-full grid-cols-3 mb-6 bg-white/50 dark:bg-slate-800/50 backdrop-blur-md rounded-xl p-1">
             <TabsTrigger 
               value="calendar" 
               className="gap-2 rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:shadow-sm"
@@ -70,7 +71,14 @@ const Index = () => {
               className="gap-2 rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:shadow-sm"
             >
               <Mic size={16} />
-              Manuell
+              Meeting Manuell
+            </TabsTrigger>
+            <TabsTrigger 
+              value="desktop" 
+              className="gap-2 rounded-lg data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 data-[state=active]:shadow-sm"
+            >
+              <Monitor size={16} />
+              Desktop-Aufnahme
             </TabsTrigger>
           </TabsList>
 
@@ -97,6 +105,10 @@ const Index = () => {
                 <RecordingViewer recordingId={activeRecordingId} />
               </GlassCard>
             )}
+          </TabsContent>
+
+          <TabsContent value="desktop">
+            <DesktopRecordingTab />
           </TabsContent>
         </Tabs>
 
