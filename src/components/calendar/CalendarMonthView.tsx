@@ -62,14 +62,14 @@ export const CalendarMonthView = ({
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-4">
           <h3 className="text-sm font-semibold text-foreground">Kalender</h3>
-          {/* Legend inline with title */}
+          {/* Legend inline with title - larger markers */}
           <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-primary ring-2 ring-primary/30" />
               <span>Mit Link</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full border-2 border-amber-500 bg-transparent" />
               <span>Ohne</span>
             </div>
           </div>
@@ -108,10 +108,12 @@ export const CalendarMonthView = ({
           hasNoLinkMeeting: datesWithoutLink,
         }}
         modifiersClassNames={{
-          hasLinkMeeting: 'after:absolute after:bottom-0 after:left-[calc(50%-3px)] after:w-1 after:h-1 after:rounded-full after:bg-primary',
-          hasNoLinkMeeting: 'before:absolute before:bottom-0 before:left-[calc(50%+1px)] before:w-1 before:h-1 before:rounded-full before:bg-amber-500',
+          // Mit Link: Gefüllter Punkt mit Ring-Effekt (größer und deutlicher)
+          hasLinkMeeting: 'after:absolute after:bottom-0.5 after:left-1/2 after:-translate-x-1/2 after:w-2 after:h-2 after:rounded-full after:bg-primary after:ring-2 after:ring-primary/30',
+          // Ohne Link: Umrandeter Punkt, innen transparent (klar unterscheidbar)
+          hasNoLinkMeeting: 'before:absolute before:bottom-0.5 before:left-1/2 before:-translate-x-1/2 before:w-2 before:h-2 before:rounded-full before:border-2 before:border-amber-500 before:bg-transparent',
         }}
-        className="rounded-md text-xs w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-table]:w-full [&_.rdp-cell]:flex-1 [&_.rdp-head_th]:text-[10px] [&_.rdp-head_th]:p-1 [&_.rdp-head_th]:flex-1 [&_.rdp-cell]:p-0 [&_.rdp-day]:h-6 [&_.rdp-day]:w-full [&_.rdp-day]:text-[11px] [&_.rdp-caption]:text-xs [&_.rdp-nav_button]:h-5 [&_.rdp-nav_button]:w-5"
+        className="rounded-md text-xs w-full [&_.rdp-months]:w-full [&_.rdp-month]:w-full [&_.rdp-table]:w-full [&_.rdp-cell]:flex-1 [&_.rdp-head_th]:text-[10px] [&_.rdp-head_th]:p-1 [&_.rdp-head_th]:flex-1 [&_.rdp-cell]:p-0 [&_.rdp-day]:h-7 [&_.rdp-day]:w-full [&_.rdp-day]:text-[11px] [&_.rdp-day]:relative [&_.rdp-caption]:text-xs [&_.rdp-nav_button]:h-5 [&_.rdp-nav_button]:w-5"
       />
     </div>
   );
