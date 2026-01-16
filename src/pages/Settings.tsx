@@ -32,6 +32,7 @@ const Settings = () => {
   const [botName, setBotName] = useState("Notetaker Bot");
   const [botAvatarUrl, setBotAvatarUrl] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSyncingBotName, setIsSyncingBotName] = useState(false);
   const [isRepairingRecordings, setIsRepairingRecordings] = useState(false);
   
   // Transcript backups state
@@ -164,6 +165,7 @@ const Settings = () => {
   
   // Save bot name to database and localStorage, then sync to Recall.ai
   const saveBotName = async () => {
+    setIsSyncingBotName(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -188,23 +190,38 @@ const Settings = () => {
       
       // Sync bot settings to Recall.ai for automated calendar bots
       try {
-        await supabase.functions.invoke('recall-calendar-meetings', {
+        const { data: syncResult, error: syncError } = await supabase.functions.invoke('recall-calendar-meetings', {
           body: { action: 'sync_bot_settings' }
         });
+        
+        console.log('Sync result:', syncResult);
+        
+        if (syncError || !syncResult?.success) {
+          toast({
+            title: "Gespeichert (Sync ausstehend)",
+            description: "Bot-Name wurde lokal gespeichert. Sync zu Recall.ai wird bei nächster Verbindung durchgeführt.",
+          });
+        } else {
+          toast({
+            title: "Gespeichert & synchronisiert",
+            description: `Bot-Name "${botName}" wurde zu Recall.ai synchronisiert.`,
+          });
+        }
       } catch (syncErr) {
         console.warn('Could not sync bot settings to Recall.ai:', syncErr);
+        toast({
+          title: "Gespeichert",
+          description: "Bot-Name wurde lokal gespeichert.",
+        });
       }
-      
-      toast({
-        title: "Gespeichert",
-        description: "Bot-Name wurde gespeichert.",
-      });
     } catch (err) {
       console.error('Error saving bot name:', err);
       toast({
         title: "Fehler beim Speichern",
         variant: "destructive",
       });
+    } finally {
+      setIsSyncingBotName(false);
     }
   };
   
@@ -453,6 +470,7 @@ const Settings = () => {
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Bot-Profilbild</Label>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">⚠️ Avatar funktioniert nur bei manueller Bot-Zuschaltung</p>
                   <p className="text-sm text-muted-foreground">Wird in MS Teams & Google Meet angezeigt</p>
                 </div>
                 <div className="flex items-center gap-3">
@@ -510,8 +528,14 @@ const Settings = () => {
                   <Button 
                     size="sm" 
                     onClick={saveBotName}
+                    disabled={isSyncingBotName}
                   >
-                    Speichern
+                    {isSyncingBotName ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-1" />
+                    )}
+                    {isSyncingBotName ? "Sync..." : "Speichern"}
                   </Button>
                 </div>
               </div>
