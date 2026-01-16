@@ -24,7 +24,9 @@ interface ExportPayload {
   recording_id: string
   user_id: string
   title: string
+  safe_title?: string  // Bereits sanitierter Titel für Dateiname
   transcript_txt: string  // Formatierter TXT-Content mit Header
+  transcript_text?: string  // Alternative Key für Kompatibilität
   created_at: string
   duration: number | null
   metadata?: {
@@ -58,14 +60,17 @@ Deno.serve(async (req) => {
 
     // 2. Request Body parsen
     const payload: ExportPayload = await req.json()
-    const { recording_id, user_id, title, transcript_txt, created_at, duration, metadata } = payload
+    const { recording_id, user_id, title, safe_title, transcript_txt, transcript_text, created_at, duration, metadata } = payload
+
+    // Nutze transcript_txt oder transcript_text (Kompatibilität)
+    const transcriptContent = transcript_txt || transcript_text || ''
 
     console.log(`Empfange Transkript für Recording: ${recording_id}`)
 
     // 3. Validierung
-    if (!transcript_txt || !recording_id) {
+    if (!transcriptContent || !recording_id) {
       return new Response(
-        JSON.stringify({ error: 'missing required fields: recording_id and transcript_txt' }), 
+        JSON.stringify({ error: 'missing required fields: recording_id and transcript_txt/transcript_text' }), 
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -75,17 +80,28 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // 5. Dateiname generieren
-    const timestamp = new Date(created_at || Date.now()).toISOString().replace(/[:.]/g, '-')
-    const safeTitle = (title || 'meeting').replace(/[^a-zA-Z0-9äöüÄÖÜß\s-]/g, '').substring(0, 50).trim()
-    const fileName = `${user_id}/${recording_id}_${safeTitle}_${timestamp}.txt`
+    // 5. Dateiname generieren - WICHTIG: safe_title verwenden wenn vorhanden!
+    const timestamp = Date.now()
+    // Nutze safe_title aus dem Payload, oder sanitiere den title selbst
+    const sanitizedTitle = safe_title || (title || 'meeting')
+      .replace(/[&]/g, '_')
+      .replace(/[äÄ]/g, 'ae')
+      .replace(/[öÖ]/g, 'oe')
+      .replace(/[üÜ]/g, 'ue')
+      .replace(/[ß]/g, 'ss')
+      .replace(/[^a-zA-Z0-9\s\-_]/g, '')
+      .replace(/\s+/g, '_')
+      .substring(0, 50)
+      .trim() || 'meeting'
+    
+    const fileName = `${user_id}/${recording_id}_${sanitizedTitle}_${timestamp}.txt`
 
     console.log(`Speichere Datei: ${fileName}`)
 
     // 6. TXT-Datei in Storage-Bucket hochladen
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('transcripts')  // Bucket-Name in deinem externen Projekt
-      .upload(fileName, transcript_txt, {
+      .upload(fileName, transcriptContent, {
         contentType: 'text/plain; charset=utf-8',
         upsert: true,  // Überschreiben falls bereits vorhanden
       })
