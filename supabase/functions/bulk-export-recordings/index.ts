@@ -1,5 +1,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+// Helper: Sanitize title for safe filename usage
+function sanitizeTitle(title: string): string {
+  return title
+    .replace(/[&]/g, '_')           // Ersetze & durch _
+    .replace(/[äÄ]/g, 'ae')         // Deutsche Umlaute
+    .replace(/[öÖ]/g, 'oe')
+    .replace(/[üÜ]/g, 'ue')
+    .replace(/[ß]/g, 'ss')
+    .replace(/[^a-zA-Z0-9\s\-_]/g, '') // Nur sichere Zeichen behalten
+    .replace(/\s+/g, '_')           // Leerzeichen zu _
+    .substring(0, 50)               // Max 50 Zeichen
+    .trim()
+}
+
 interface BulkParams {
   limit?: number
   since?: string
@@ -144,14 +158,19 @@ Deno.serve(async (req) => {
       try {
         console.log(`Exportiere: ${recording.id} - ${recording.title || 'Ohne Titel'}`)
 
+        const meetingTitle = recording.title || 'Ohne Titel'
+        const safeTitle = sanitizeTitle(meetingTitle)
+        
         const exportData = {
           recording_id: recording.id,
           user_id: recording.user_id,
-          title: recording.title || '',
+          title: meetingTitle,          // Original-Titel für Anzeige
+          safe_title: safeTitle,        // Sanitierter Titel für Dateiname
           summary: recording.summary || '',
           key_points: recording.key_points || [],
           action_items: recording.action_items || [],
           transcript_text: recording.transcript_text || '',
+          transcript_txt: recording.transcript_text || '', // Kompatibilität
           participants: recording.participants || [],
           calendar_attendees: recording.calendar_attendees || [],
           duration: recording.duration,

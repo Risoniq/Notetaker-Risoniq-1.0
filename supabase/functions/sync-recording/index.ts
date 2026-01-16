@@ -1,5 +1,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+// Helper: Sanitize title for safe filename usage
+function sanitizeTitle(title: string): string {
+  return title
+    .replace(/[&]/g, '_')           // Ersetze & durch _
+    .replace(/[äÄ]/g, 'ae')         // Deutsche Umlaute
+    .replace(/[öÖ]/g, 'oe')
+    .replace(/[üÜ]/g, 'ue')
+    .replace(/[ß]/g, 'ss')
+    .replace(/[^a-zA-Z0-9\s\-_]/g, '') // Nur sichere Zeichen behalten
+    .replace(/\s+/g, '_')           // Leerzeichen zu _
+    .substring(0, 50)               // Max 50 Zeichen
+    .trim()
+}
+
 // Dynamic CORS headers based on origin
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get('origin') || '';
@@ -505,11 +519,13 @@ User ID: ${recording.user_id || user.id}
 
 ${transcriptContent}`
           
-          // Export-Payload mit TXT-Content
+          // Export-Payload mit TXT-Content und sanitiertem Titel
+          const safeTitle = sanitizeTitle(meetingTitle)
           const exportPayload = {
             recording_id: id,
             user_id: recording.user_id || user.id,
-            title: meetingTitle,
+            title: meetingTitle,        // Original-Titel für Anzeige
+            safe_title: safeTitle,      // Sanitierter Titel für Dateiname
             transcript_txt: txtContent,
             created_at: recording.created_at,
             duration: recording.duration,
