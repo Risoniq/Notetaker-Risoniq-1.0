@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { User } from '@supabase/supabase-js';
+import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 
 export type GoogleCalendarStatus = 'disconnected' | 'connecting' | 'connected' | 'syncing' | 'error';
 
@@ -48,13 +49,15 @@ export function useGoogleRecallCalendar() {
         setError(null);
       }
       
-      const { data, error: funcError } = await supabase.functions.invoke('google-recall-auth', {
-        body: { 
-          action: 'status', 
-          supabase_user_id: authUser.id,
-          user_email: authUser.email,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('google-recall-auth', {
+          body: { 
+            action: 'status', 
+            supabase_user_id: authUser.id,
+            user_email: authUser.email,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -102,13 +105,15 @@ export function useGoogleRecallCalendar() {
         if (authUser?.id) {
           for (let i = 0; i < 5; i++) {
             await new Promise(resolve => setTimeout(resolve, 2000));
-            const { data } = await supabase.functions.invoke('google-recall-auth', {
-              body: {
-                action: 'status',
-                supabase_user_id: authUser.id,
-                user_email: authUser.email,
-              },
-            });
+            const { data } = await withTokenRefresh(
+              () => supabase.functions.invoke('google-recall-auth', {
+                body: {
+                  action: 'status',
+                  supabase_user_id: authUser.id,
+                  user_email: authUser.email,
+                },
+              })
+            );
             
             if (data?.success && data.connected) {
               setConnected(true);
@@ -155,13 +160,15 @@ export function useGoogleRecallCalendar() {
           for (let i = 0; i < maxRetries; i++) {
             await new Promise(resolve => setTimeout(resolve, (i + 1) * 2000));
             
-            const { data } = await supabase.functions.invoke('google-recall-auth', {
-              body: { 
-                action: 'status', 
-                supabase_user_id: authUser.id,
-                user_email: authUser.email,
-              },
-            });
+            const { data } = await withTokenRefresh(
+              () => supabase.functions.invoke('google-recall-auth', {
+                body: { 
+                  action: 'status', 
+                  supabase_user_id: authUser.id,
+                  user_email: authUser.email,
+                },
+              })
+            );
             
             if (data?.success && data.connected) {
               setConnected(true);
@@ -201,14 +208,16 @@ export function useGoogleRecallCalendar() {
 
       const redirectUri = `${window.location.origin}/calendar-callback`;
 
-      const { data, error: funcError } = await supabase.functions.invoke('google-recall-auth', {
-        body: {
-          action: 'authenticate',
-          supabase_user_id: authUser.id,
-          user_email: authUser.email,
-          redirect_uri: redirectUri,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('google-recall-auth', {
+          body: {
+            action: 'authenticate',
+            supabase_user_id: authUser.id,
+            user_email: authUser.email,
+            redirect_uri: redirectUri,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -244,13 +253,15 @@ export function useGoogleRecallCalendar() {
           pollCount++;
 
           try {
-            const { data: statusData } = await supabase.functions.invoke('google-recall-auth', {
-              body: {
-                action: 'status',
-                supabase_user_id: authUser.id,
-                user_email: authUser.email,
-              },
-            });
+            const { data: statusData } = await withTokenRefresh(
+              () => supabase.functions.invoke('google-recall-auth', {
+                body: {
+                  action: 'status',
+                  supabase_user_id: authUser.id,
+                  user_email: authUser.email,
+                },
+              })
+            );
 
             if (statusData?.success && statusData.connected) {
               clearInterval(pollForConnection);
@@ -288,9 +299,11 @@ export function useGoogleRecallCalendar() {
 
     try {
       setIsLoading(true);
-      const { data, error: funcError } = await supabase.functions.invoke('google-recall-auth', {
-        body: { action: 'disconnect', supabase_user_id: authUser.id },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('google-recall-auth', {
+          body: { action: 'disconnect', supabase_user_id: authUser.id },
+        })
+      );
 
       if (funcError) throw funcError;
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { User } from '@supabase/supabase-js';
+import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 
 export interface RecallMeeting {
   id: string;
@@ -82,13 +83,15 @@ export function useRecallCalendar() {
         setError(null);
       }
       
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: { 
-          action: 'status', 
-          supabase_user_id: authUser.id,
-          user_email: authUser.email,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-auth', {
+          body: { 
+            action: 'status', 
+            supabase_user_id: authUser.id,
+            user_email: authUser.email,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -168,13 +171,15 @@ export function useRecallCalendar() {
             // Wait longer on each retry (2s, 4s, 6s)
             await new Promise(resolve => setTimeout(resolve, (i + 1) * 2000));
             
-            const { data } = await supabase.functions.invoke('recall-calendar-auth', {
-              body: { 
-                action: 'status', 
-                supabase_user_id: authUser.id,
-                user_email: authUser.email,
-              },
-            });
+            const { data } = await withTokenRefresh(
+              () => supabase.functions.invoke('recall-calendar-auth', {
+                body: { 
+                  action: 'status', 
+                  supabase_user_id: authUser.id,
+                  user_email: authUser.email,
+                },
+              })
+            );
             
             if (data?.success) {
               setGoogleConnected(data.google_connected);
@@ -217,9 +222,11 @@ export function useRecallCalendar() {
     try {
       setIsLoading(true);
       setMeetingsError(null);
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
-        body: { action: 'list', supabase_user_id: authUser.id },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-meetings', {
+          body: { action: 'list', supabase_user_id: authUser.id },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -271,15 +278,17 @@ export function useRecallCalendar() {
       // Build redirect URI for callback
       const redirectUri = `${window.location.origin}/calendar-callback`;
 
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: {
-          action: 'authenticate',
-          supabase_user_id: authUser.id,
-          user_email: authUser.email,
-          provider,
-          redirect_uri: redirectUri,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-auth', {
+          body: {
+            action: 'authenticate',
+            supabase_user_id: authUser.id,
+            user_email: authUser.email,
+            provider,
+            redirect_uri: redirectUri,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -328,13 +337,15 @@ export function useRecallCalendar() {
           }
 
           try {
-            const { data: statusData } = await supabase.functions.invoke('recall-calendar-auth', {
-              body: {
-                action: 'status',
-                supabase_user_id: authUser.id,
-                user_email: authUser.email,
-              },
-            });
+            const { data: statusData } = await withTokenRefresh(
+              () => supabase.functions.invoke('recall-calendar-auth', {
+                body: {
+                  action: 'status',
+                  supabase_user_id: authUser.id,
+                  user_email: authUser.email,
+                },
+              })
+            );
 
             console.log('[useRecallCalendar] Poll status response:', {
               pollCount,
@@ -390,13 +401,15 @@ export function useRecallCalendar() {
 
     try {
       setIsLoading(true);
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: { 
-          action: 'repair', 
-          supabase_user_id: authUser.id,
-          target_recall_user_id: targetRecallUserId,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-auth', {
+          body: { 
+            action: 'repair', 
+            supabase_user_id: authUser.id,
+            target_recall_user_id: targetRecallUserId,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -428,9 +441,11 @@ export function useRecallCalendar() {
 
     try {
       setIsLoading(true);
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: { action: 'disconnect_provider', supabase_user_id: authUser.id, provider },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-auth', {
+          body: { action: 'disconnect_provider', supabase_user_id: authUser.id, provider },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -466,14 +481,16 @@ export function useRecallCalendar() {
     if (!authUser?.id) return;
 
     try {
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
-        body: { 
-          action: 'update_recording', 
-          supabase_user_id: authUser.id, 
-          meeting_id: meetingId,
-          auto_record: shouldRecord,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-meetings', {
+          body: { 
+            action: 'update_recording', 
+            supabase_user_id: authUser.id, 
+            meeting_id: meetingId,
+            auto_record: shouldRecord,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -498,13 +515,15 @@ export function useRecallCalendar() {
     if (!authUser?.id) return;
 
     try {
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-meetings', {
-        body: { 
-          action: 'update_preferences', 
-          supabase_user_id: authUser.id, 
-          auto_record: newPrefs,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-meetings', {
+          body: { 
+            action: 'update_preferences', 
+            supabase_user_id: authUser.id, 
+            auto_record: newPrefs,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 
@@ -523,13 +542,15 @@ export function useRecallCalendar() {
     if (!authUser?.id) return null;
 
     try {
-      const { data, error: funcError } = await supabase.functions.invoke('recall-calendar-auth', {
-        body: {
-          action: 'debug_connections',
-          supabase_user_id: authUser.id,
-          user_email: authUser.email,
-        },
-      });
+      const { data, error: funcError } = await withTokenRefresh(
+        () => supabase.functions.invoke('recall-calendar-auth', {
+          body: {
+            action: 'debug_connections',
+            supabase_user_id: authUser.id,
+            user_email: authUser.email,
+          },
+        })
+      );
 
       if (funcError) throw funcError;
 

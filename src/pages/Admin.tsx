@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings } from 'lucide-react';
+import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -85,11 +86,13 @@ const Admin = () => {
         return;
       }
 
-      const response = await supabase.functions.invoke('admin-dashboard', {
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-      });
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-dashboard', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+        })
+      );
 
       if (response.error) {
         throw new Error(response.error.message || 'Failed to fetch admin data');
@@ -119,12 +122,14 @@ const Admin = () => {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) return;
 
-      const response = await supabase.functions.invoke('admin-approve-user', {
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-        body: { user_id: userId, action },
-      });
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-approve-user', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: { user_id: userId, action },
+        })
+      );
 
       if (response.error) {
         throw new Error(response.error.message);
@@ -155,12 +160,14 @@ const Admin = () => {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) return;
 
-      const response = await supabase.functions.invoke('admin-delete-user', {
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-        body: { user_id: userId },
-      });
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-delete-user', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: { user_id: userId },
+        })
+      );
 
       if (response.error) {
         throw new Error(response.error.message);
@@ -197,15 +204,17 @@ const Admin = () => {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session) return;
 
-      const response = await supabase.functions.invoke('admin-set-quota', {
-        headers: {
-          Authorization: `Bearer ${sessionData.session.access_token}`,
-        },
-        body: { 
-          user_id: editingUser.id, 
-          max_minutes: Math.round(quotaHours * 60) 
-        },
-      });
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-set-quota', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: { 
+            user_id: editingUser.id, 
+            max_minutes: Math.round(quotaHours * 60) 
+          },
+        })
+      );
 
       if (response.error) {
         throw new Error(response.error.message);
