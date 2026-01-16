@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Bot, Loader2, Video } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 
 interface QuickMeetingJoinProps {
   onBotStarted?: () => void;
@@ -50,13 +51,15 @@ export const QuickMeetingJoin = ({ onBotStarted }: QuickMeetingJoinProps) => {
 
       console.log('[QuickMeetingJoin] Sende Bot mit Einstellungen:', { botName, botAvatarUrl });
 
-      const { data, error } = await supabase.functions.invoke('create-bot', {
-        body: {
-          meetingUrl: meetingUrl.trim(),
-          botName,
-          botAvatarUrl,
-        },
-      });
+      const { data, error } = await withTokenRefresh(
+        () => supabase.functions.invoke('create-bot', {
+          body: {
+            meetingUrl: meetingUrl.trim(),
+            botName,
+            botAvatarUrl,
+          },
+        })
+      );
 
       if (error) throw error;
 

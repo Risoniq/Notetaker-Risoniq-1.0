@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { withTokenRefresh } from "@/lib/retryWithTokenRefresh";
 import { Recording, getStatusLabel, getStatusColor } from "@/types/recording";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,9 +90,11 @@ export default function MeetingDetail() {
 
     setIsSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke('sync-recording', {
-        body: { id, force_resync: forceResync }
-      });
+      const { data, error } = await withTokenRefresh(
+        () => supabase.functions.invoke('sync-recording', {
+          body: { id, force_resync: forceResync }
+        })
+      );
 
       if (error) {
         console.error('Sync error:', error);
@@ -377,9 +380,11 @@ export default function MeetingDetail() {
       toast.info("Analyse wird mit neuem Transkript aktualisiert...");
       
       // Analyse neu starten
-      const { error: analyzeError } = await supabase.functions.invoke('analyze-transcript', {
-        body: { recording_id: id }
-      });
+      const { error: analyzeError } = await withTokenRefresh(
+        () => supabase.functions.invoke('analyze-transcript', {
+          body: { recording_id: id }
+        })
+      );
 
       if (analyzeError) {
         console.error('Analyze error:', analyzeError);
