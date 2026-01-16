@@ -32,12 +32,42 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Secret-basierte Authentifizierung
+    // Secret-basierte Authentifizierung ODER Admin-JWT
     const exportSecret = Deno.env.get('TRANSCRIPT_EXPORT_SECRET')
     const providedSecret = req.headers.get('x-export-secret') ?? ''
     
-    if (!exportSecret || providedSecret !== exportSecret) {
-      console.error('Unauthorized: Invalid or missing x-export-secret')
+    // Prüfe zuerst Secret-Auth
+    let isAuthorized = exportSecret && providedSecret === exportSecret
+    
+    // Falls kein Secret, prüfe auf Admin-Rolle via JWT
+    if (!isAuthorized) {
+      const authHeader = req.headers.get('Authorization')
+      if (authHeader?.startsWith('Bearer ')) {
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+        const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2')
+        const adminClient = createClient(supabaseUrl, supabaseServiceKey)
+        
+        const token = authHeader.replace('Bearer ', '')
+        const { data: { user }, error: authError } = await adminClient.auth.getUser(token)
+        
+        if (user && !authError) {
+          // Prüfe ob User Admin ist
+          const { data: roleData } = await adminClient
+            .from('user_roles')
+            .select('role')
+            .eq('user_id', user.id)
+            .eq('role', 'admin')
+            .maybeSingle()
+          
+          isAuthorized = !!roleData
+          console.log(`Admin-Auth für User ${user.id}: ${isAuthorized ? 'OK' : 'Nicht Admin'}`)
+        }
+      }
+    }
+    
+    if (!isAuthorized) {
+      console.error('Unauthorized: Invalid secret or missing admin role')
       return new Response(JSON.stringify({ error: 'unauthorized' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -139,7 +169,7 @@ Deno.serve(async (req) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-export-secret': exportSecret,
+            'x-export-secret': exportSecret || '',
           },
           body: JSON.stringify(exportData),
         })
