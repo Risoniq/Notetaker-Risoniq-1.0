@@ -643,7 +643,17 @@ serve(async (req) => {
           return false;
         }
         const result = await response.json();
+        console.log('[Sync] Full response from Recall.ai:', JSON.stringify(result));
+        console.log('[Sync] Confirmed bot_name:', result.bot_name);
         console.log('[Sync] Received preferences from Recall:', JSON.stringify(result.preferences));
+        
+        // Verify the bot name was actually set
+        if (botConfig?.bot_name && result.bot_name !== botConfig.bot_name) {
+          console.warn('[Sync] bot_name mismatch! Expected:', botConfig.bot_name, 'Got:', result.bot_name);
+        } else if (botConfig?.bot_name) {
+          console.log('[Sync] ✓ bot_name successfully set to:', result.bot_name);
+        }
+        
         return true;
       } catch (error) {
         console.error('[Internal] Error syncing preferences:', error);
@@ -824,10 +834,13 @@ serve(async (req) => {
       console.log('[sync_bot_settings] Syncing bot settings for user:', supabaseUserId, 'Config:', JSON.stringify(botConfig));
 
       const synced = await syncPreferencesToRecall(recallUserId, prefs, botConfig);
+      
+      console.log('[sync_bot_settings] Sync completed:', synced ? 'SUCCESS' : 'FAILED');
 
       return new Response(
         JSON.stringify({ 
           success: synced, 
+          bot_name: botConfig.bot_name,
           message: synced ? 'Bot settings synced to Recall.ai' : 'Failed to sync bot settings' 
         }),
         { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
