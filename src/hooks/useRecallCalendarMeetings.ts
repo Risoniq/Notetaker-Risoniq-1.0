@@ -159,8 +159,15 @@ export function useRecallCalendarMeetings() {
       const errorMsg = err.message || '';
       
       // Handle 401 Unauthorized - user session expired/invalid
+      // During auto-refresh, keep existing data and silently skip
+      // Only clear data if this is a manual fetch (not auto-refresh)
       if (errorMsg.includes('401') || errorMsg.includes('Unauthorized')) {
-        // Don't show error, just clear state - user needs to re-authenticate
+        if (isAutoRefresh) {
+          // Keep existing meetings during auto-refresh - token might refresh soon
+          console.log('[useRecallCalendarMeetings] 401 during auto-refresh, keeping existing data');
+          return;
+        }
+        // On manual fetch, clear state - user needs to re-authenticate
         setMeetings([]);
         setMeetingsError(null);
         return;
