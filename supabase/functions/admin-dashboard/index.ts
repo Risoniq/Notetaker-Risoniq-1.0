@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
     // Active bot statuses
     const activeBotStatuses = ['joining', 'in_call_not_recording', 'in_call_recording', 'waiting_room'];
     
-    // Build user stats
+    // Build user stats - only count "done" recordings for quota calculation
     const recordingsMap = new Map<string, { count: number; duration: number; words: number; lastActivity: string | null; hasActiveBot: boolean }>();
     
     if (recordings) {
@@ -132,15 +132,20 @@ Deno.serve(async (req) => {
         if (!rec.user_id) continue;
         
         const existing = recordingsMap.get(rec.user_id) || { count: 0, duration: 0, words: 0, lastActivity: null, hasActiveBot: false };
-        existing.count += 1;
-        existing.duration += rec.duration || 0;
-        existing.words += rec.word_count || 0;
         
+        // Only count completed recordings for quota calculation (duration, count, words)
+        if (rec.status === 'done') {
+          existing.count += 1;
+          existing.duration += rec.duration || 0;
+          existing.words += rec.word_count || 0;
+        }
+        
+        // Track lastActivity for all recordings
         if (!existing.lastActivity || new Date(rec.created_at) > new Date(existing.lastActivity)) {
           existing.lastActivity = rec.created_at;
         }
         
-        // Check if this user has an active bot
+        // Check if this user has an active bot (independent of done status)
         if (activeBotStatuses.includes(rec.status)) {
           existing.hasActiveBot = true;
         }

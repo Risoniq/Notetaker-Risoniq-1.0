@@ -34,8 +34,12 @@ export function QuotaExhaustedModal({ open, onClose }: QuotaExhaustedModalProps)
               Vielen Dank für die Teilnahme an der Testversion!
             </p>
             <p className="text-sm">
-              Dein Meeting-Kontingent ist aufgebraucht. Upgrade auf die Vollversion 
-              für unbegrenzte Meeting-Aufnahmen.
+              Dein Meeting-Kontingent ist aufgebraucht. Du kannst keine weiteren 
+              Meetings aufnehmen, aber alle bisherigen Aufnahmen und Transkripte 
+              stehen dir weiterhin zur Analyse bereit.
+            </p>
+            <p className="text-sm font-medium text-primary">
+              Upgrade auf die Vollversion für unbegrenzte Meeting-Aufnahmen.
             </p>
           </DialogDescription>
         </DialogHeader>

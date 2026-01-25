@@ -5,13 +5,14 @@ import { RecentActivityList } from "@/components/recordings/RecentActivityList";
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
 import { DesktopRecordingTab } from "@/components/desktop/DesktopRecordingTab";
 import { Toaster } from "@/components/ui/toaster";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/glass-card";
 import { QuotaProgressBar } from "@/components/quota/QuotaProgressBar";
 import { QuotaExhaustedModal } from "@/components/quota/QuotaExhaustedModal";
 import { useUserQuota } from "@/hooks/useUserQuota";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const Index = () => {
   const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null);
@@ -53,19 +54,39 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Bot-Steuerung */}
-        <div className="space-y-5">
-          <GlassCard title="Bot zu Meeting senden">
-            <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
-          </GlassCard>
-          
-          {/* Active Recording Status */}
-          {activeRecordingId && (
-            <GlassCard title="Aktive Aufnahme">
-              <RecordingViewer recordingId={activeRecordingId} />
+        {/* Quota Exhausted Warning Banner */}
+        {quota?.is_exhausted && (
+          <Alert className="border-destructive bg-destructive/10">
+            <AlertTriangle className="h-4 w-4 text-destructive" />
+            <AlertDescription>
+              <strong>Kontingent erschöpft:</strong> Du kannst keine weiteren Meetings aufnehmen. 
+              Deine bisherigen Aufnahmen stehen weiterhin zur Analyse bereit.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Bot-Steuerung - nur wenn Kontingent verfügbar */}
+        {!quota?.is_exhausted && (
+          <div className="space-y-5">
+            <GlassCard title="Bot zu Meeting senden">
+              <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
             </GlassCard>
-          )}
-        </div>
+            
+            {/* Active Recording Status */}
+            {activeRecordingId && (
+              <GlassCard title="Aktive Aufnahme">
+                <RecordingViewer recordingId={activeRecordingId} />
+              </GlassCard>
+            )}
+          </div>
+        )}
+
+        {/* Active Recording Status - auch bei erschöpftem Kontingent anzeigen wenn noch aktiv */}
+        {quota?.is_exhausted && activeRecordingId && (
+          <GlassCard title="Aktive Aufnahme">
+            <RecordingViewer recordingId={activeRecordingId} />
+          </GlassCard>
+        )}
 
         {/* Desktop-Aufnahme */}
         <DesktopRecordingTab />
