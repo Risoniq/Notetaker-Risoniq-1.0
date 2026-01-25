@@ -16,7 +16,18 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
   const duration = recording.duration ? `${Math.floor(recording.duration / 60)} Min` : null;
   
   const isAnalyzing = recording.status === 'processing';
-  const isActive = ['pending', 'joining', 'recording'].includes(recording.status);
+  const hasActiveStatus = ['pending', 'joining', 'recording'].includes(recording.status);
+  
+  // Erkennung von veralteten Meetings (älter als 4 Stunden mit aktivem Status)
+  const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 Stunden
+  const isStale = hasActiveStatus && 
+    (Date.now() - new Date(recording.created_at).getTime()) > STALE_THRESHOLD_MS;
+  
+  // Nur als aktiv anzeigen, wenn nicht veraltet
+  const isActive = hasActiveStatus && !isStale;
+  
+  // Effektiven Status für die Anzeige bestimmen
+  const displayStatus = isStale ? 'timeout' : recording.status;
   
   return (
     <Card 
@@ -34,9 +45,9 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
                 {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
               </h3>
             )}
-            <Badge className={`shrink-0 ${getStatusColor(recording.status)}`}>
+            <Badge className={`shrink-0 ${getStatusColor(displayStatus)}`}>
               {isAnalyzing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-              {getStatusLabel(recording.status)}
+              {getStatusLabel(displayStatus)}
             </Badge>
           </div>
 
