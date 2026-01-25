@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { RecordingViewer } from "@/components/RecordingViewer";
 import { RecordingsList } from "@/components/recordings/RecordingsList";
-import { RecentActivityList } from "@/components/recordings/RecentActivityList";
+
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
 
 import { Toaster } from "@/components/ui/toaster";
@@ -89,18 +89,8 @@ const Index = () => {
         )}
 
 
-        {/* Dashboard Grid - Letzte Aktivitäten & Aufnahmen */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Recent Activity */}
-          <GlassCard title="Letzte Aktivitäten">
-            <RecentActivityList />
-          </GlassCard>
-          
-          {/* Recordings */}
-          <GlassCard title="Aufnahmen">
-            <RecordingsList />
-          </GlassCard>
-        </div>
+        {/* Aufnahmen */}
+        <RecordingsList />
 
         {/* Modal für erschöpftes Kontingent */}
         <QuotaExhaustedModal 
