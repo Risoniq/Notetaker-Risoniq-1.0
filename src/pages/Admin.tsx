@@ -360,7 +360,7 @@ const Admin = () => {
                 <Skeleton className="h-8 w-16" />
               ) : (
                 <p className="text-2xl font-bold">
-                  {((summary?.total_minutes || 0) / 60).toFixed(1)}h
+                  {Math.floor((summary?.total_minutes || 0) / 60)}h {(summary?.total_minutes || 0) % 60}min
                 </p>
               )}
             </CardContent>
