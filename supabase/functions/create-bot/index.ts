@@ -200,6 +200,37 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
+    // 5.1. Quota-Check: Prüfen ob User noch Kontingent hat
+    const { data: quotaData } = await supabase
+      .from('user_quotas')
+      .select('max_minutes')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    const maxMinutes = quotaData?.max_minutes ?? 120; // Default 2h
+
+    const { data: doneRecordings } = await supabase
+      .from('recordings')
+      .select('duration')
+      .eq('user_id', user.id)
+      .eq('status', 'done');
+
+    const usedSeconds = doneRecordings?.reduce((sum: number, r: { duration: number | null }) => sum + (r.duration || 0), 0) || 0;
+    const usedMinutes = Math.round(usedSeconds / 60);
+
+    if (usedMinutes >= maxMinutes) {
+      console.log(`[Quota] User ${user.id} hat Kontingent erschöpft: ${usedMinutes}/${maxMinutes} Minuten`);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Quota exhausted',
+          message: 'Dein Meeting-Kontingent ist erschöpft. Upgrade auf die Vollversion für unbegrenzte Meetings.'
+        }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`[Quota] User ${user.id} hat noch Kontingent: ${usedMinutes}/${maxMinutes} Minuten`);
+
     // 6. Recall API Konfiguration laden
     const recallApiKey = Deno.env.get("RECALL_API_KEY");
     const recallApiUrl = Deno.env.get("RECALL_API_URL") || "https://eu-central-1.recall.ai/api/v1/bot";
