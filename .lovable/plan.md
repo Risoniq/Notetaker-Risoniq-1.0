@@ -1,102 +1,73 @@
 
-# Dark Mode Toggle hinzufügen
+# Veraltete "Meeting läuft" Anzeigen bereinigen
 
-## Übersicht
-Ein Dark Mode Toggle wird in der Header-Navigation integriert, der es Benutzern ermöglicht, zwischen Hell-, Dunkel- und System-Modus zu wechseln.
+## Problem-Analyse
 
-## Änderungen
+In der Datenbank befinden sich viele Aufnahmen mit Status `joining`, `pending` oder `recording`, die über Wochen oder sogar einen Monat alt sind. Diese werden in der RecordingCard fälschlicherweise als "Meeting läuft..." angezeigt.
 
-### 1. ThemeProvider in App.tsx einbinden
-Die App muss mit dem `ThemeProvider` von `next-themes` umwickelt werden, damit der Theme-Wechsel funktioniert.
+**Beispiele aus der Datenbank:**
+- Aufnahme vom 16.12.2025 mit Status "joining"
+- Aufnahme vom 13.01.2026 mit Status "joining"
+- Aufnahme vom 19.01.2026 mit Status "joining"
 
-**Datei: `src/App.tsx`**
-- Import von `ThemeProvider` aus `next-themes` hinzufügen
-- Die gesamte App mit `<ThemeProvider>` umwickeln
-- Konfiguration: `attribute="class"`, `defaultTheme="system"`, `enableSystem`
+## Lösungsansatz
 
-### 2. Dark Mode Toggle-Komponente erstellen
-Eine neue Komponente mit einem Dropdown-Menü für die Theme-Auswahl.
+### 1. Frontend: Zeitbasierte Erkennung von veralteten Meetings
 
-**Neue Datei: `src/components/ui/theme-toggle.tsx`**
-- Verwendet `useTheme` Hook von `next-themes`
-- Dropdown mit drei Optionen:
-  - ☀️ Hell (Light)
-  - 🌙 Dunkel (Dark)
-  - 💻 System (Auto)
-- Button mit Sun/Moon Icon, das sich je nach Theme ändert
-- Glasmorphism-Styling passend zum Design
+**Datei: `src/components/recordings/RecordingCard.tsx`**
 
-### 3. Toggle in AppLayout integrieren
-Der Toggle wird rechts in der Header-Navigation platziert.
+Füge eine Logik hinzu, die Meetings als "Abgebrochen" oder "Zeitüberschreitung" markiert, wenn sie einen aktiven Status haben, aber älter als 4 Stunden sind:
 
-**Datei: `src/components/layout/AppLayout.tsx`**
-- Import der `ThemeToggle`-Komponente
-- Platzierung im Header neben der Navigation
-
-## Vorschau
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  🎤 Meeting Recorder    [Dashboard][Kalender][...]   [🌓]  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-Der Toggle erscheint als Icon-Button rechts im Header.
-
----
-
-## Technische Details
-
-### ThemeProvider Konfiguration (App.tsx)
 ```typescript
-import { ThemeProvider } from "next-themes";
-
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <TooltipProvider>
-        {/* ... Rest der App */}
-      </TooltipProvider>
-    </ThemeProvider>
-  </QueryClientProvider>
-);
+const isStale = ['pending', 'joining', 'recording'].includes(recording.status) && 
+  (Date.now() - new Date(recording.created_at).getTime()) > 4 * 60 * 60 * 1000; // 4 Stunden
 ```
 
-### ThemeToggle Komponente
-```typescript
-import { Moon, Sun } from "lucide-react";
-import { useTheme } from "next-themes";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+- Wenn `isStale` true ist, zeige "Zeitüberschreitung" statt "Meeting läuft..."
+- Ändere die Badge-Farbe auf grau oder orange für veraltete Einträge
 
-export function ThemeToggle() {
-  const { setTheme } = useTheme();
+### 2. Backend: Automatische Bereinigung alter aktiver Aufnahmen
 
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="glass" size="icon">
-          <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Theme wechseln</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>Hell</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>Dunkel</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>System</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
+**Neue Datei: `supabase/functions/cleanup-stale-recordings/index.ts`**
+
+Eine Edge Function, die alte Aufnahmen mit aktiven Status automatisch auf "error" oder "timeout" setzt:
+
+- Findet alle Recordings mit Status `pending`, `joining`, `recording`
+- Deren `created_at` älter als 4 Stunden ist
+- Setzt deren Status auf `timeout` oder `error`
+
+### 3. Einmalige Datenbank-Bereinigung
+
+Ein SQL-Statement, das alle bestehenden veralteten Aufnahmen bereinigt:
+
+```sql
+UPDATE recordings 
+SET status = 'timeout', updated_at = NOW()
+WHERE status IN ('pending', 'joining', 'recording')
+AND created_at < NOW() - INTERVAL '4 hours';
 ```
 
-### Dateien die geändert werden:
-1. `src/App.tsx` - ThemeProvider hinzufügen
-2. `src/components/ui/theme-toggle.tsx` - Neue Komponente erstellen
-3. `src/components/layout/AppLayout.tsx` - Toggle im Header integrieren
+### 4. Status-Typ erweitern
+
+**Datei: `src/types/recording.ts`**
+
+Füge `timeout` als neuen Status hinzu mit entsprechendem Label und Farbe:
+
+- Label: "Zeitüberschreitung"
+- Farbe: Gedämpftes Orange/Grau
+
+## Änderungen im Detail
+
+| Datei | Änderung |
+|-------|----------|
+| `src/components/recordings/RecordingCard.tsx` | Zeitbasierte Erkennung und angepasste Anzeige für veraltete Meetings |
+| `src/types/recording.ts` | Neuen Status `timeout` hinzufügen |
+| `supabase/functions/cleanup-stale-recordings/index.ts` | Neue Edge Function für automatische Bereinigung |
+| Datenbank-Migration | SQL zur einmaligen Bereinigung + optionaler Cron-Job |
+
+## Ergebnis
+
+- Vergangene Meetings mit hängendem Status werden korrekt als "Zeitüberschreitung" angezeigt
+- Der Bot versucht nicht mehr, diesen Meetings beizutreten
+- Neue Meetings werden nach 4 Stunden automatisch als timeout markiert
+- Die Aufnahmen-Liste zeigt nur noch relevante Status an
