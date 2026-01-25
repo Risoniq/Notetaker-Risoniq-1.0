@@ -1,18 +1,26 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Bot, Loader2, Video } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Bot, Loader2, Video, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 
 interface QuickMeetingJoinProps {
-  onBotStarted?: () => void;
+  onBotStarted?: (recordingId?: string) => void;
 }
 
 export const QuickMeetingJoin = ({ onBotStarted }: QuickMeetingJoinProps) => {
   const [meetingUrl, setMeetingUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Erkennung von externen Teams-Meetings (Business/Enterprise)
+  const isExternalTeamsMeeting = useMemo(() => {
+    const url = meetingUrl.toLowerCase();
+    return url.includes('teams.microsoft.com/meet/') || 
+           url.includes('teams.microsoft.com/l/meetup-join');
+  }, [meetingUrl]);
 
   const isValidMeetingUrl = (url: string): boolean => {
     const patterns = [
@@ -65,11 +73,15 @@ export const QuickMeetingJoin = ({ onBotStarted }: QuickMeetingJoinProps) => {
 
       toast({
         title: 'Bot gestartet',
-        description: `Bot tritt dem Meeting bei: ${data?.meetingTitle || 'Meeting'}`,
+        description: isExternalTeamsMeeting 
+          ? 'Bot wurde gesendet! Der Meeting-Host muss den Bot aus dem Wartebereich lassen.'
+          : `Bot tritt dem Meeting bei: ${data?.meetingTitle || 'Meeting'}`,
       });
 
+      // Recording-ID aus Response extrahieren und via Callback zurückgeben
+      const recordingId = data?.recording?.id;
       setMeetingUrl('');
-      onBotStarted?.();
+      onBotStarted?.(recordingId);
     } catch (error) {
       console.error('Error sending bot:', error);
       toast({
@@ -112,6 +124,17 @@ export const QuickMeetingJoin = ({ onBotStarted }: QuickMeetingJoinProps) => {
           Senden
         </Button>
       </div>
+      
+      {isExternalTeamsMeeting && (
+        <Alert className="mt-3 border-warning bg-warning/10">
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <AlertDescription className="text-sm">
+            <strong>Externes Teams-Meeting erkannt:</strong> Bei Microsoft Teams Business/Enterprise 
+            Meetings muss der Meeting-Host den Bot manuell aus dem Wartebereich lassen. 
+            Der Bot erscheint möglicherweise als "Unverified".
+          </AlertDescription>
+        </Alert>
+      )}
     </div>
   );
 };
