@@ -1,7 +1,8 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Recording, getStatusLabel, getStatusColor } from "@/types/recording";
-import { Calendar, Clock, FileText, Target, CheckSquare } from "lucide-react";
+import { Calendar, Clock, FileText, Target, CheckSquare, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -14,6 +15,9 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
   const formattedDate = format(new Date(recording.created_at), "dd. MMM yyyy, HH:mm", { locale: de });
   const duration = recording.duration ? `${Math.floor(recording.duration / 60)} Min` : null;
   
+  const isAnalyzing = recording.status === 'processing';
+  const isActive = ['pending', 'joining', 'recording'].includes(recording.status);
+  
   return (
     <Card 
       className="cursor-pointer transition-all hover:shadow-lg hover:border-primary/50 hover:-translate-y-1"
@@ -23,10 +27,15 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
         <div className="flex flex-col gap-3">
           {/* Header */}
           <div className="flex items-start justify-between gap-2">
-            <h3 className="font-semibold text-foreground line-clamp-2">
-              {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
-            </h3>
+            {isAnalyzing && !recording.title ? (
+              <Skeleton className="h-5 w-3/4" />
+            ) : (
+              <h3 className="font-semibold text-foreground line-clamp-2">
+                {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
+              </h3>
+            )}
             <Badge className={`shrink-0 ${getStatusColor(recording.status)}`}>
+              {isAnalyzing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
               {getStatusLabel(recording.status)}
             </Badge>
           </div>
@@ -37,16 +46,33 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
               <Calendar className="h-3.5 w-3.5" />
               <span>{formattedDate}</span>
             </div>
-            {duration && (
+            {isAnalyzing && !duration ? (
+              <Skeleton className="h-4 w-16" />
+            ) : duration ? (
               <div className="flex items-center gap-1.5">
                 <Clock className="h-3.5 w-3.5" />
                 <span>{duration}</span>
               </div>
-            )}
+            ) : null}
           </div>
 
-          {/* Stats */}
-          {recording.status === 'done' && (
+          {/* Stats - Show placeholders when analyzing */}
+          {isAnalyzing ? (
+            <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-border">
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <FileText className="h-3.5 w-3.5 opacity-50" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <Target className="h-3.5 w-3.5 opacity-50" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+              <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                <CheckSquare className="h-3.5 w-3.5 opacity-50" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            </div>
+          ) : recording.status === 'done' ? (
             <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-border">
               {recording.word_count && (
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -67,7 +93,12 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
                 </div>
               )}
             </div>
-          )}
+          ) : isActive ? (
+            <div className="flex items-center gap-2 pt-2 border-t border-border text-sm text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Meeting läuft...</span>
+            </div>
+          ) : null}
         </div>
       </CardContent>
     </Card>
