@@ -23,7 +23,7 @@ export interface Recording {
   participants: RecordingParticipant[] | null;
 }
 
-export type RecordingStatus = 'pending' | 'joining' | 'recording' | 'processing' | 'done' | 'error';
+export type RecordingStatus = 'pending' | 'joining' | 'recording' | 'processing' | 'done' | 'error' | 'timeout';
 
 export const getStatusLabel = (status: string): string => {
   const labels: Record<string, string> = {
@@ -33,6 +33,7 @@ export const getStatusLabel = (status: string): string => {
     processing: 'Verarbeitung...',
     done: 'Fertig',
     error: 'Fehler',
+    timeout: 'Zeitüberschreitung',
   };
   return labels[status] || status;
 };
@@ -45,6 +46,7 @@ export const getStatusColor = (status: string): string => {
     processing: 'bg-blue-500/20 text-blue-700 dark:text-blue-400',
     done: 'bg-green-500/20 text-green-700 dark:text-green-400',
     error: 'bg-destructive/20 text-destructive',
+    timeout: 'bg-orange-500/20 text-orange-700 dark:text-orange-400',
   };
   return colors[status] || 'bg-muted text-muted-foreground';
 };
