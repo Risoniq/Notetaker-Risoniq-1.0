@@ -1,117 +1,184 @@
 
-# Meeting-Kontingent mit tatsächlicher Dauer verbinden
 
-## Problem-Analyse
+# Admin Quota-Management & Dashboard-Sperrung bei erschöpftem Kontingent
 
-Die Meeting-Kontingent-Leiste zeigt aktuell immer "0m" an, weil die `duration`-Spalte in der `recordings`-Tabelle für alle Einträge `NULL` ist:
+## Übersicht
 
-| Recording | duration |
-|-----------|----------|
-| Produkt-Update & Roadmap Diskussion | NULL |
-| Vertriebstraining und -strategie | NULL |
-| KI-Bot für Leadgenerierung | NULL |
-| ... | NULL |
+Die Admin-Seite hat bereits die Quota-Anzeige mit Fortschrittsbalken und Zahnrad zum Bearbeiten. Die Aufgabe ist nun:
 
-Die Duration-Daten sind jedoch verfügbar! Recall.ai liefert `started_at` und `completed_at` im Recording-Objekt:
-
-```json
-{
-  "started_at": "2026-01-21T18:35:57.672768Z",
-  "completed_at": "2026-01-21T19:42:27.506161Z"
-}
-```
-
-Die `sync-recording` Edge Function berechnet diese Differenz nicht und speichert sie nicht in der Datenbank.
+1. **Korrekte `used_minutes`-Berechnung im Admin-Dashboard** - Nur fertige Recordings zählen
+2. **Dashboard-Sperrung** - Bei erschöpftem Kontingent kann kein Bot mehr gesendet werden, aber vergangene Meetings bleiben verfügbar
 
 ---
 
-## Lösungsansatz
+## Änderungen
 
-### 1. sync-recording Edge Function erweitern
+### 1. Admin-Dashboard: used_minutes nur aus "done"-Recordings
 
-Die Funktion muss die Meeting-Dauer aus `started_at` und `completed_at` berechnen und als Sekunden in der `duration`-Spalte speichern.
+**Datei: `supabase/functions/admin-dashboard/index.ts`**
 
-**Datei: `supabase/functions/sync-recording/index.ts`**
-
-Nach dem Abrufen der Bot-Daten von Recall.ai:
+Aktuell wird `stats.duration` aus allen Recordings summiert. Die Berechnung soll nur "done"-Recordings berücksichtigen:
 
 ```typescript
-// Duration aus recordings[0] berechnen
-if (botData.recordings?.[0]) {
-  const recording = botData.recordings[0];
-  const startedAt = recording.started_at;
-  const completedAt = recording.completed_at;
-  
-  if (startedAt && completedAt) {
-    const startTime = new Date(startedAt).getTime();
-    const endTime = new Date(completedAt).getTime();
-    const durationSeconds = Math.round((endTime - startTime) / 1000);
+// In der recordingsMap-Logik
+if (recordings) {
+  for (const rec of recordings) {
+    if (!rec.user_id) continue;
     
-    if (durationSeconds > 0) {
-      updates.duration = durationSeconds;
-      console.log(`Meeting-Dauer berechnet: ${durationSeconds}s (${Math.round(durationSeconds/60)}min)`);
+    const existing = recordingsMap.get(rec.user_id) || { 
+      count: 0, 
+      duration: 0,  // Nur für done-Status
+      words: 0, 
+      lastActivity: null, 
+      hasActiveBot: false 
+    };
+    
+    // Nur fertige Recordings für Quota-Berechnung zählen
+    if (rec.status === 'done') {
+      existing.count += 1;
+      existing.duration += rec.duration || 0;
+      existing.words += rec.word_count || 0;
     }
+    
+    // lastActivity für alle Recordings tracken
+    if (!existing.lastActivity || new Date(rec.created_at) > new Date(existing.lastActivity)) {
+      existing.lastActivity = rec.created_at;
+    }
+    
+    // Active Bot unabhängig vom Status
+    if (activeBotStatuses.includes(rec.status)) {
+      existing.hasActiveBot = true;
+    }
+    
+    recordingsMap.set(rec.user_id, existing);
   }
 }
 ```
 
-### 2. Bestehende Recordings reparieren
+### 2. Dashboard: Bot-Steuerung bei erschöpftem Kontingent sperren
 
-Eine einmalige Reparatur-Funktion, die für alle bestehenden "done"-Recordings die Duration nachträglich berechnet. Dies kann über die existierende `repair-all-recordings` Edge Function erfolgen.
+**Datei: `src/pages/Index.tsx`**
 
-**Optionen:**
-- Button in Settings zum "Reparieren aller Recordings"  
-- Oder automatisches Re-Sync wenn ein User seine Recordings öffnet
+Statt nur ein Modal anzuzeigen, soll die Bot-Steuerung deaktiviert werden und eine permanente Warnung angezeigt werden:
 
-### 3. useUserQuota Hook (bereits korrekt implementiert)
+```tsx
+{/* Quota Exhausted Warning Banner */}
+{quota?.is_exhausted && (
+  <Alert className="border-destructive bg-destructive/10">
+    <AlertTriangle className="h-4 w-4 text-destructive" />
+    <AlertDescription>
+      <strong>Kontingent erschöpft:</strong> Du kannst keine weiteren Meetings aufnehmen. 
+      Deine bisherigen Aufnahmen stehen weiterhin zur Analyse bereit.
+    </AlertDescription>
+  </Alert>
+)}
 
-Der Hook summiert bereits die `duration` aller Recordings mit Status "done":
-
-```typescript
-const usedSeconds = recordings?.reduce((sum, r) => sum + (r.duration || 0), 0) || 0;
-const usedMinutes = Math.round(usedSeconds / 60);
+{/* Bot-Steuerung - nur wenn Kontingent verfügbar */}
+{!quota?.is_exhausted && (
+  <GlassCard title="Bot zu Meeting senden">
+    <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
+  </GlassCard>
+)}
 ```
 
-Sobald die Duration-Werte in der DB stehen, funktioniert die Berechnung automatisch.
+### 3. QuickMeetingJoin: Quota-Check integrieren
 
-### 4. QuotaProgressBar (bereits korrekt implementiert)
+**Datei: `src/components/calendar/QuickMeetingJoin.tsx`**
 
-Die Komponente zeigt bereits die Werte aus `useUserQuota` an und berechnet Farben basierend auf dem Verbrauch.
+Optional als zusätzliche Absicherung: Quota im Komponenten-State prüfen und Button deaktivieren:
+
+```tsx
+interface QuickMeetingJoinProps {
+  onBotStarted?: (recordingId?: string) => void;
+  disabled?: boolean;  // Neue Prop für Quota-Sperrung
+}
+
+// Im JSX:
+<Button
+  onClick={handleSendBot}
+  disabled={isLoading || !meetingUrl.trim() || disabled}
+>
+```
+
+### 4. QuotaExhaustedModal verbessern
+
+**Datei: `src/components/quota/QuotaExhaustedModal.tsx`**
+
+Klarere Meldung, dass vergangene Meetings weiterhin verfügbar sind:
+
+```tsx
+<DialogDescription className="text-center space-y-2">
+  <p className="text-base">
+    Vielen Dank für die Teilnahme an der Testversion!
+  </p>
+  <p className="text-sm">
+    Dein Meeting-Kontingent ist aufgebraucht. Du kannst keine weiteren 
+    Meetings aufnehmen, aber alle bisherigen Aufnahmen und Transkripte 
+    stehen dir weiterhin zur Analyse bereit.
+  </p>
+  <p className="text-sm font-medium text-primary">
+    Upgrade auf die Vollversion für unbegrenzte Meeting-Aufnahmen.
+  </p>
+</DialogDescription>
+```
+
+### 5. Backend-Absicherung (Optional aber empfohlen)
+
+**Datei: `supabase/functions/create-bot/index.ts`**
+
+Quota-Check auf Server-Seite, bevor ein Bot erstellt wird:
+
+```typescript
+// Quota prüfen bevor Bot erstellt wird
+const { data: quotaData } = await supabaseAdmin
+  .from('user_quotas')
+  .select('max_minutes')
+  .eq('user_id', user.id)
+  .maybeSingle();
+
+const maxMinutes = quotaData?.max_minutes ?? 120;
+
+const { data: recordings } = await supabaseAdmin
+  .from('recordings')
+  .select('duration')
+  .eq('user_id', user.id)
+  .eq('status', 'done');
+
+const usedSeconds = recordings?.reduce((sum, r) => sum + (r.duration || 0), 0) || 0;
+const usedMinutes = Math.round(usedSeconds / 60);
+
+if (usedMinutes >= maxMinutes) {
+  return new Response(JSON.stringify({ 
+    error: 'Quota exhausted',
+    message: 'Dein Meeting-Kontingent ist erschöpft. Upgrade auf die Vollversion für unbegrenzte Meetings.'
+  }), {
+    status: 403,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+```
 
 ---
 
-## Technische Umsetzung
+## Zusammenfassung der Dateien
 
 | Datei | Änderung |
 |-------|----------|
-| `supabase/functions/sync-recording/index.ts` | Duration aus `started_at`/`completed_at` berechnen und in `updates.duration` speichern |
-| `supabase/functions/repair-all-recordings/index.ts` | Prüfen/erweitern, dass Duration bei Re-Sync korrekt gesetzt wird |
-| (Optional) `src/pages/Settings.tsx` | Button "Kontingent aktualisieren" zum manuellen Re-Sync aller Recordings |
-
----
-
-## Ablauf nach Implementierung
-
-```text
-Neues Meeting endet
-       ↓
-sync-recording wird aufgerufen
-       ↓
-Duration wird aus started_at/completed_at berechnet
-       ↓
-Duration (in Sekunden) wird in recordings.duration gespeichert
-       ↓
-useUserQuota summiert alle done-Recordings
-       ↓
-QuotaProgressBar zeigt: "1h 6m / 50h" (beispiel)
-```
+| `supabase/functions/admin-dashboard/index.ts` | `used_minutes` nur aus "done"-Recordings berechnen |
+| `src/pages/Index.tsx` | Warn-Banner + Bot-Steuerung ausblenden bei erschöpftem Kontingent |
+| `src/components/quota/QuotaExhaustedModal.tsx` | Klarere Meldung mit Hinweis auf weiterhin verfügbare Inhalte |
+| `supabase/functions/create-bot/index.ts` | Quota-Check auf Server-Seite (Absicherung) |
+| (Optional) `src/components/calendar/QuickMeetingJoin.tsx` | `disabled` Prop hinzufügen |
 
 ---
 
 ## Erwartetes Ergebnis
 
-- Bei jedem abgeschlossenen Meeting wird die tatsächliche Dauer in Sekunden gespeichert
-- Die Kontingent-Leiste auf dem Dashboard zeigt die korrekte Summe aller Meeting-Dauern
-- Die Warnung bei 80%/100% Verbrauch funktioniert korrekt
-- Admins können über das Admin-Dashboard die Kontingente pro User einsehen und anpassen
-- Bestehende Meetings können über "Transkript neu laden" oder eine Reparatur-Funktion aktualisiert werden
+1. **Admin-Dashboard:** Zeigt korrekte verbrauchte Minuten (nur abgeschlossene Meetings)
+2. **Quota-Bearbeitung:** Weiterhin über Zahnrad im Admin-Dashboard möglich
+3. **Erschöpftes Kontingent im Dashboard:**
+   - Warn-Banner oben angezeigt
+   - Bot-Steuerung ausgeblendet/deaktiviert
+   - Bisherige Aufnahmen und Transkripte weiterhin zugänglich
+4. **Server-seitige Absicherung:** Bot-Erstellung wird auch ohne Frontend-Check blockiert
+
