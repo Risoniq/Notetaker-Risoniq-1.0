@@ -300,15 +300,26 @@ Deno.serve(async (req) => {
           console.log('Speaker Timeline Sample:', JSON.stringify(speakerTimeline?.slice?.(0, 5), null, 2))
           
           // Ergänze Mapping mit Daten aus speaker_timeline
+          // WICHTIG: Recall.ai nutzt "participant" statt "user" im Transkript-Format!
           if (Array.isArray(speakerTimeline)) {
-            speakerTimeline.forEach((entry: { user?: { name?: string; id?: number; platform_user_id?: string; identifier?: string } }) => {
-              if (entry.user) {
-                const speakerId = entry.user.id !== undefined ? String(entry.user.id) : null
-                const platformId = entry.user.platform_user_id || null
-                const identifier = entry.user.identifier || null
-                const name = entry.user.name && entry.user.name.trim() !== '' ? entry.user.name : null
+            speakerTimeline.forEach((entry: { 
+              participant?: { name?: string; id?: number; platform_user_id?: string; identifier?: string };
+              user?: { name?: string; id?: number; platform_user_id?: string; identifier?: string };
+            }) => {
+              // Prüfe zuerst participant (aktuelles Recall.ai Format), dann user (Legacy)
+              const source = entry.participant || entry.user
+              if (source) {
+                const speakerId = source.id !== undefined ? String(source.id) : null
+                const platformId = source.platform_user_id || null
+                const identifier = source.identifier || null
+                const name = source.name && source.name.trim() !== '' ? source.name : null
                 
-                if (name) {
+                // Bot/Notetaker-Filter
+                const isBot = name && ['notetaker', 'bot', 'recording', 'assistant'].some(
+                  pattern => name.toLowerCase().includes(pattern)
+                )
+                
+                if (name && !isBot) {
                   // Speichere unter allen IDs wenn wir noch keinen Namen haben
                   if (speakerId && (!participantMap[speakerId] || participantMap[speakerId].startsWith('Teilnehmer ') || participantMap[speakerId].startsWith('Sprecher '))) {
                     participantMap[speakerId] = name
@@ -383,27 +394,38 @@ Deno.serve(async (req) => {
               }
               
               // Hilfsfunktion: Besten verfügbaren Namen ermitteln
+              // WICHTIG: Recall.ai nutzt "participant" im aktuellen Format, nicht "user"!
               const getBestSpeakerName = (entry: { 
                 speaker?: string; 
                 speaker_id?: number; 
+                participant?: { id?: number; name?: string; platform_user_id?: string; identifier?: string };
                 user?: { id?: number; name?: string; platform_user_id?: string; identifier?: string };
               }): string => {
-                // Priorität 1: user.name direkt im Entry (MS Teams liefert das oft so)
-                if (entry.user?.name && entry.user.name.trim() !== '' && entry.user.name !== 'unknown') {
-                  return entry.user.name
+                // Wähle die richtige Quelle: participant (neu) oder user (legacy)
+                const source = entry.participant || entry.user
+                
+                // Priorität 1: Name direkt im Entry
+                if (source?.name && source.name.trim() !== '' && source.name !== 'unknown') {
+                  // Bot/Notetaker-Filter
+                  const isBot = ['notetaker', 'bot', 'recording', 'assistant'].some(
+                    pattern => source.name!.toLowerCase().includes(pattern)
+                  )
+                  if (!isBot) {
+                    return source.name
+                  }
                 }
                 
-                // Priorität 2: user.id zum Nachschlagen in participantMap
-                if (entry.user?.id !== undefined) {
-                  const userId = String(entry.user.id)
-                  if (participantMap[userId] && !participantMap[userId].startsWith('Sprecher ')) {
-                    return participantMap[userId]
+                // Priorität 2: ID zum Nachschlagen in participantMap
+                if (source?.id !== undefined) {
+                  const id = String(source.id)
+                  if (participantMap[id] && !participantMap[id].startsWith('Sprecher ')) {
+                    return participantMap[id]
                   }
                 }
                 
                 // Priorität 3: platform_user_id (bei Teams oft die E-Mail-Adresse)
-                if (entry.user?.platform_user_id && entry.user.platform_user_id.trim() !== '') {
-                  const platformId = entry.user.platform_user_id
+                if (source?.platform_user_id && source.platform_user_id.trim() !== '') {
+                  const platformId = source.platform_user_id
                   // Schaue erst in der Map, ob wir einen besseren Namen haben
                   if (participantMap[platformId] && !participantMap[platformId].startsWith('Sprecher ')) {
                     return participantMap[platformId]
@@ -416,8 +438,8 @@ Deno.serve(async (req) => {
                 }
                 
                 // Priorität 4: identifier (alternative ID)
-                if (entry.user?.identifier && entry.user.identifier.trim() !== '') {
-                  const identifier = entry.user.identifier
+                if (source?.identifier && source.identifier.trim() !== '') {
+                  const identifier = source.identifier
                   if (participantMap[identifier] && !participantMap[identifier].startsWith('Sprecher ')) {
                     return participantMap[identifier]
                   }
@@ -445,7 +467,7 @@ Deno.serve(async (req) => {
                 }
                 
                 // Fallback: Konsistente Nummerierung für unbekannte Sprecher
-                const speakerKey = entry.user?.id !== undefined ? String(entry.user.id) : 
+                const speakerKey = source?.id !== undefined ? String(source.id) : 
                                    entry.speaker_id !== undefined ? String(entry.speaker_id) : 
                                    entry.speaker || 'unknown'
                 
@@ -455,18 +477,44 @@ Deno.serve(async (req) => {
                 return unknownSpeakerMap[speakerKey]
               }
               
+              // Sammle auch alle echten Teilnehmer aus dem Transkript für participantsList
+              const transcriptParticipants = new Map<string, { id: string; name: string }>()
+              
               const formattedTranscript = transcriptData
                 .map((entry: { 
                   speaker?: string; 
                   speaker_id?: number; 
+                  participant?: { id?: number; name?: string; platform_user_id?: string; identifier?: string };
                   user?: { id?: number; name?: string; platform_user_id?: string; identifier?: string };
                   words?: { text?: string }[] 
                 }) => {
                   const speaker = getBestSpeakerName(entry)
                   const text = entry.words?.map(w => w.text).join(' ') || ''
+                  
+                  // Sammle Teilnehmer wenn es ein echter Name ist (kein Fallback)
+                  const source = entry.participant || entry.user
+                  if (source?.name && speaker === source.name) {
+                    const isBot = ['notetaker', 'bot', 'recording', 'assistant'].some(
+                      pattern => speaker.toLowerCase().includes(pattern)
+                    )
+                    if (!isBot) {
+                      const id = String(source.id || source.platform_user_id || '')
+                      transcriptParticipants.set(speaker, { id, name: speaker })
+                    }
+                  }
+                  
                   return `${speaker}: ${text}`
                 })
                 .join('\n\n')
+              
+              // Ergänze participantsList mit Sprechern aus dem Transkript
+              transcriptParticipants.forEach((p) => {
+                const exists = participantsList.some(existing => existing.name === p.name)
+                if (!exists) {
+                  participantsList.push(p)
+                  console.log(`Teilnehmer aus Transkript hinzugefügt: "${p.name}"`)
+                }
+              })
               
               updates.transcript_text = formattedTranscript
               console.log('Transkript formatiert, Länge:', formattedTranscript.length, 'Zeichen')

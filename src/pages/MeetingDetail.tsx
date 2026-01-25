@@ -482,26 +482,47 @@ export default function MeetingDetail() {
   const dbParticipants = recording.participants as { id: string; name: string }[] | null;
   const transcriptParticipants = extractParticipants(recording.transcript_text);
   
-  // Berechne Teilnehmeranzahl
+  // Hilfsfunktion: Bot/Notetaker-Erkennung
+  const isBot = (name: string): boolean => {
+    const botPatterns = ['notetaker', 'bot', 'recording', 'assistant', 'meetingbot'];
+    return botPatterns.some(p => name.toLowerCase().includes(p));
+  };
+  
+  // Berechne Teilnehmeranzahl - filtere Bots und generische Fallbacks
   let participantCount = 0;
   let participantNames: string[] = [];
   
   if (dbParticipants && dbParticipants.length > 0) {
-    // Aus DB (zukünftige Meetings mit Speaker Timeline)
-    participantCount = dbParticipants.length;
-    participantNames = dbParticipants.map(p => p.name);
+    // Aus DB (zukünftige Meetings mit Speaker Timeline) - filtere Bots
+    const realParticipants = dbParticipants.filter(p => p.name && !isBot(p.name));
+    participantCount = realParticipants.length;
+    participantNames = realParticipants.map(p => p.name);
   } else if (transcriptParticipants.length > 0) {
-    // Aus Transkript extrahiert
-    // Wenn alle "Unbekannt" sind, zähle die verschiedenen Sprechblöcke um Sprecher zu schätzen
-    const nonUnknown = transcriptParticipants.filter(s => s !== 'Unbekannt');
-    if (nonUnknown.length > 0) {
-      participantCount = nonUnknown.length;
-      participantNames = nonUnknown;
+    // Aus Transkript extrahiert - filtere Bots und generische Namen
+    const realSpeakers = transcriptParticipants.filter(s => 
+      s !== 'Unbekannt' && 
+      !s.startsWith('Sprecher ') && 
+      !isBot(s)
+    );
+    
+    if (realSpeakers.length > 0) {
+      participantCount = realSpeakers.length;
+      participantNames = realSpeakers;
     } else {
-      // Bei "Unbekannt" versuchen wir die Anzahl der Sprecher anhand von Gesprächsmustern zu schätzen
-      // Mindestens 2 Teilnehmer wenn es ein Gespräch gibt
-      participantCount = recording.transcript_text && recording.transcript_text.includes('\n\n') ? 2 : 1;
-      participantNames = ['Unbekannte Teilnehmer'];
+      // Zähle einzigartige Sprecher-Nummern (Sprecher 1, Sprecher 2, etc.)
+      const speakerNumbers = transcriptParticipants
+        .filter(s => s.startsWith('Sprecher '))
+        .map(s => s);
+      const uniqueSpeakers = [...new Set(speakerNumbers)];
+      
+      if (uniqueSpeakers.length > 0) {
+        participantCount = uniqueSpeakers.length;
+        participantNames = uniqueSpeakers;
+      } else {
+        // Mindestens 2 Teilnehmer wenn es ein Gespräch gibt
+        participantCount = recording.transcript_text && recording.transcript_text.includes('\n\n') ? 2 : 1;
+        participantNames = ['Unbekannte Teilnehmer'];
+      }
     }
   } else if (recording.transcript_text) {
     participantCount = 1;
