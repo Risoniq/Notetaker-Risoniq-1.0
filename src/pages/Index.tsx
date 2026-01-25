@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { MeetingBot } from "@/components/MeetingBot";
 import { RecordingViewer } from "@/components/RecordingViewer";
 import { RecordingsList } from "@/components/recordings/RecordingsList";
 import { RecentActivityList } from "@/components/recordings/RecentActivityList";
@@ -54,26 +53,18 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Bot-Steuerung Grid - 2 Spalten */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Quick Meeting Join */}
-          <GlassCard title="Schnell-Beitritt">
-            <QuickMeetingJoin />
+        {/* Bot-Steuerung */}
+        <div className="space-y-5">
+          <GlassCard title="Bot zu Meeting senden">
+            <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
           </GlassCard>
           
-          {/* Meeting Bot Input + Active Recording */}
-          <div className="space-y-5">
-            <GlassCard title="Manueller Bot">
-              <MeetingBot onRecordingCreated={setActiveRecordingId} />
+          {/* Active Recording Status */}
+          {activeRecordingId && (
+            <GlassCard title="Aktive Aufnahme">
+              <RecordingViewer recordingId={activeRecordingId} />
             </GlassCard>
-            
-            {/* Active Recording Status */}
-            {activeRecordingId && (
-              <GlassCard title="Aktive Aufnahme">
-                <RecordingViewer recordingId={activeRecordingId} />
-              </GlassCard>
-            )}
-          </div>
+          )}
         </div>
 
         {/* Desktop-Aufnahme */}
