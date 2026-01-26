@@ -688,7 +688,7 @@ serve(async (req) => {
         record_all: true,
         record_only_owned: false,
         record_external: true,
-        auto_record: true,
+        auto_record: false,
       };
 
       // Sync to Recall.ai using external user ID (email) - include bot config
