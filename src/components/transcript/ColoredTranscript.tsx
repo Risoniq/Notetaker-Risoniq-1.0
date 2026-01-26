@@ -22,7 +22,7 @@ export const ColoredTranscript = ({ transcript, className = '' }: ColoredTranscr
       {parsedLines.map((line, index) => (
         <div key={index} className="flex gap-3 animate-fade-in" style={{ animationDelay: `${Math.min(index * 20, 200)}ms` }}>
           <div 
-            className="shrink-0 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap"
+            className="shrink-0 w-fit self-start px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap"
             style={{ 
               backgroundColor: line.color.bg,
               color: line.color.text,
