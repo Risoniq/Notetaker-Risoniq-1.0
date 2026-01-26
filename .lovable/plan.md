@@ -1,123 +1,84 @@
 
-# Admin-Zugriff auf Recordings und User-ID im Transkript-Header
+
+# Bot-Namen für Kalender-Automatik korrigieren
 
 ## Problem-Analyse
 
-**403-Fehler erklärt:**
-Die Edge Function Logs zeigen klar das Problem:
-- Eingeloggter User: `704551d2-286b-4e57-80d0-721f198aea43` (hat **Admin-Rolle**)
-- Recording-Owner: `725ab560-e2f9-4e4f-938f-635bc14951fe` (hat **approved-Rolle**)
+Die Logs zeigen klar das Problem:
+```
+[Sync] Sent preferences body: {"preferences":{...},"bot_name":"Risoniq Notetaker"}
+[Sync] Full response from Recall.ai: {...,"preferences":{"bot_name":"dominikbauer Notetaker"}}
+```
 
-Die Edge Functions `sync-recording` und `analyze-transcript` prüfen aktuell nur, ob der aktuelle Benutzer der Owner ist - sie ignorieren die Admin-Rolle, obwohl die RLS-Policies in der Datenbank Admins bereits Zugriff gewähren.
+**Ursache:** Der `bot_name` wird auf der **Root-Ebene** des API-Payloads gesendet, aber Recall.ai erwartet ihn **innerhalb des `preferences`-Objekts**.
 
-## Geplante Änderungen
-
-### 1. Admin-Prüfung in sync-recording hinzufügen
-
-**Datei: `supabase/functions/sync-recording/index.ts`**
-
-Die Ownership-Prüfung (Zeile 115-122) erweitern um Admin-Check:
-
-```typescript
-// Bestehend:
-if (recording.user_id && recording.user_id !== user.id) {
-  console.error(`[Auth] User ${user.id} tried to access recording owned by ${recording.user_id}`);
-  return new Response(
-    JSON.stringify({ error: 'Access denied' }),
-    { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-  );
-}
-
-// Neu: Admin-Check hinzufügen
-if (recording.user_id && recording.user_id !== user.id) {
-  // Prüfe ob User Admin ist
-  const { data: adminCheck } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', user.id)
-    .eq('role', 'admin')
-    .maybeSingle();
-  
-  if (!adminCheck) {
-    console.error(`[Auth] User ${user.id} tried to access recording owned by ${recording.user_id}`);
-    return new Response(
-      JSON.stringify({ error: 'Access denied' }),
-      { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+Laut Recall.ai API-Dokumentation ist die Response-Struktur:
+```json
+{
+  "preferences": {
+    "record_external": true,
+    "record_internal": true,
+    "bot_name": "string"  // <-- bot_name gehört HIER rein!
   }
-  console.log(`[Auth] Admin ${user.id} accessing recording owned by ${recording.user_id}`);
 }
 ```
 
-### 2. Admin-Prüfung in analyze-transcript hinzufügen
+## Geplante Änderung
 
-**Datei: `supabase/functions/analyze-transcript/index.ts`**
+**Datei: `supabase/functions/recall-calendar-meetings/index.ts`**
 
-Gleiche Logik bei Zeile 108-115 einbauen.
+In der Funktion `syncPreferencesToRecall` (Zeile 587-662) muss der `bot_name` ins `preferences`-Objekt verschoben werden:
 
-### 3. User-ID im Transkript-Header in der Datenbank speichern
+```text
+VORHER (falsch):
+┌─────────────────────────────┐
+│ {                           │
+│   preferences: {            │
+│     record_external: true,  │
+│     record_internal: true   │
+│   },                        │
+│   bot_name: "RISONIQ..."    │  ← Recall.ai ignoriert dies!
+│ }                           │
+└─────────────────────────────┘
 
-**Datei: `supabase/functions/sync-recording/index.ts`**
-
-Beim Formatieren des Transkripts (ca. Zeile 510-535) einen Header mit User-Informationen einfügen:
-
-```typescript
-// Header für Datenbank-Transkript hinzufügen
-const userId = recording.user_id || user.id;
-
-// User-Email abrufen für bessere Lesbarkeit
-const { data: userData } = await supabase.auth.admin.getUserById(userId);
-const userEmail = userData?.user?.email || 'Unbekannt';
-
-const transcriptHeader = `[Meeting-Info]
-User-ID: ${userId}
-User-Email: ${userEmail}
-Recording-ID: ${id}
-Erstellt: ${new Date(recording.created_at || Date.now()).toISOString()}
----\n\n`;
-
-updates.transcript_text = transcriptHeader + formattedTranscript;
+NACHHER (korrekt):
+┌─────────────────────────────┐
+│ {                           │
+│   preferences: {            │
+│     record_external: true,  │
+│     record_internal: true,  │
+│     bot_name: "RISONIQ..."  │  ← Wird jetzt akzeptiert!
+│   }                         │
+│ }                           │
+└─────────────────────────────┘
 ```
 
-## Zusammenfassung der Änderungen
+### Code-Änderung
 
-| Datei | Änderung |
-|-------|----------|
-| `supabase/functions/sync-recording/index.ts` | Admin-Check bei Ownership-Prüfung hinzufügen + User-ID/Email Header im Transkript |
-| `supabase/functions/analyze-transcript/index.ts` | Admin-Check bei Ownership-Prüfung hinzufügen |
+In Zeile 619-625:
+
+**Aktuell:**
+```typescript
+const updatePayload: Record<string, unknown> = { preferences: recallPreferences };
+
+if (botConfig?.bot_name) {
+  updatePayload.bot_name = botConfig.bot_name;  // FALSCH - auf Root-Ebene
+}
+```
+
+**Neu:**
+```typescript
+const updatePayload: Record<string, unknown> = { 
+  preferences: {
+    ...recallPreferences,
+    ...(botConfig?.bot_name && { bot_name: botConfig.bot_name })  // RICHTIG - in preferences
+  }
+};
+```
 
 ## Ergebnis
 
-- **Admin-Zugriff**: Admins können "Transkript neu laden" für alle Recordings ausführen
-- **Backend-Übersicht**: Jedes Transkript enthält im Header die User-ID und E-Mail des Besitzers
-- **Sicherheit bleibt erhalten**: Normale Benutzer können weiterhin nur ihre eigenen Recordings bearbeiten
-- **Konsistenz**: Sowohl sync-recording als auch analyze-transcript nutzen die gleiche Admin-Logik
+Nach dieser Änderung wird der Bot-Name "RISONIQ Notetaker" korrekt an Recall.ai übertragen und bei allen automatisch geplanten Kalender-Meetings verwendet.
 
-## Technische Details
+**Hinweis:** Nach dem Deployment muss einmalig die Bot-Einstellung in den Settings gespeichert werden, um den neuen Namen zu Recall.ai zu synchronisieren.
 
-### Admin-Check Pattern
-```typescript
-// Wiederverwendbares Pattern für alle Edge Functions:
-async function isAdmin(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const { data } = await supabase
-    .from('user_roles')
-    .select('role')
-    .eq('user_id', userId)
-    .eq('role', 'admin')
-    .maybeSingle();
-  return !!data;
-}
-```
-
-### Transkript-Header Format
-```text
-[Meeting-Info]
-User-ID: 725ab560-e2f9-4e4f-938f-635bc14951fe
-User-Email: user@example.com
-Recording-ID: 0865b411-5579-4b64-b45c-622c5c978a50
-Erstellt: 2026-01-21T14:58:56.705Z
----
-
-Max Mustermann: Guten Morgen allerseits...
-Anna Schmidt: Hallo Max, danke für die Einladung...
-```
