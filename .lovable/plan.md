@@ -1,85 +1,90 @@
 
-# Sprecher-Blasen nur um Namen wickeln
 
-## Analyse
+# Teilnehmeranzahl nur mit echten Usern zaehlen
 
-Die aktuelle `ColoredTranscript`-Komponente in `src/components/transcript/ColoredTranscript.tsx` verwendet folgende Klassen fuer die Sprecher-Badges:
+## Uebersicht
 
-```tsx
-<div 
-  className="shrink-0 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap"
-  style={{ backgroundColor, color, border }}
->
-  {line.speaker}
-</div>
-```
+Die Teilnehmeranzahl soll ueberall im System nur tatsaechliche Meeting-Teilnehmer zaehlen und Bots/Notetaker ausschliessen. Aktuell filtert `MeetingDetail.tsx` bereits korrekt, aber `TranscriptCard.tsx` zeigt alle Teilnehmer inklusive Bots an.
 
-Das Problem: Die Blasen sind in einem `flex` Container, und obwohl `shrink-0` verhindert, dass sie kleiner werden, wird nicht explizit sichergestellt, dass sie nur so breit wie ihr Inhalt sind.
+## Analyse der betroffenen Komponenten
+
+| Komponente | Aktueller Zustand | Aenderung noetig |
+|------------|-------------------|------------------|
+| `MeetingDetail.tsx` | Filtert Bots mit `isBot()` Funktion | Nein |
+| `TranscriptCard.tsx` | Keine Filterung (`participants?.length`) | Ja |
+| `UpcomingMeetings.tsx` | Zeigt Kalender-Teilnehmer (nicht Recordings) | Nein |
+| `RecordingCard.tsx` | Zeigt keine Teilnehmeranzahl | Nein |
 
 ## Loesung
 
-Zusaetzliche CSS-Klassen hinzufuegen, die die Blasen auf ihre natuerliche Inhaltsbreite beschraenken:
+Eine wiederverwendbare Utility-Funktion erstellen und in `TranscriptCard.tsx` anwenden.
 
-- `w-fit` oder `max-w-fit` - Setzt die Breite auf die minimale Inhaltsbreite
-- `self-start` - Verhindert, dass Flexbox die Hoehe auf den Container ausdehnt
+### 1. Neue Utility-Funktion erstellen
 
-## Aenderung
+**Datei:** `src/utils/participantUtils.ts` (neue Datei)
 
-**Datei:** `src/components/transcript/ColoredTranscript.tsx`
+```typescript
+// Bot/Notetaker-Erkennung
+const BOT_PATTERNS = ['notetaker', 'bot', 'recording', 'assistant', 'meetingbot'];
 
-**Zeile 24-33 aendern von:**
-```tsx
-<div 
-  className="shrink-0 px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap"
-  style={{ 
-    backgroundColor: line.color.bg,
-    color: line.color.text,
-    border: `1px solid ${line.color.border}`,
-  }}
->
-  {line.speaker}
-</div>
+export const isBot = (name: string): boolean => {
+  const lowercaseName = name.toLowerCase();
+  return BOT_PATTERNS.some(pattern => lowercaseName.includes(pattern));
+};
+
+export interface Participant {
+  id: string;
+  name: string;
+}
+
+// Filtert Bots aus Teilnehmerliste
+export const filterRealParticipants = (
+  participants: Participant[] | null | undefined
+): Participant[] => {
+  if (!participants || !Array.isArray(participants)) return [];
+  return participants.filter(p => p.name && !isBot(p.name));
+};
+
+// Zaehlt nur echte Teilnehmer
+export const countRealParticipants = (
+  participants: Participant[] | null | undefined
+): number => {
+  return filterRealParticipants(participants).length;
+};
+```
+
+### 2. TranscriptCard.tsx aktualisieren
+
+**Datei:** `src/components/transcripts/TranscriptCard.tsx`
+
+**Zeile 49 aendern von:**
+```typescript
+const participantCount = recording.participants?.length ?? 0;
 ```
 
 **Zu:**
-```tsx
-<div 
-  className="shrink-0 w-fit self-start px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap"
-  style={{ 
-    backgroundColor: line.color.bg,
-    color: line.color.text,
-    border: `1px solid ${line.color.border}`,
-  }}
->
-  {line.speaker}
-</div>
+```typescript
+import { countRealParticipants } from "@/utils/participantUtils";
+// ...
+const participantCount = countRealParticipants(recording.participants);
 ```
 
-## Erlaeuterung der Aenderungen
+### 3. MeetingDetail.tsx refaktorieren (optional)
 
-| Klasse | Zweck |
-|--------|-------|
-| `w-fit` | Setzt die Breite auf `fit-content` - die Blase ist nur so breit wie der Name |
-| `self-start` | Verhindert vertikales Stretching im Flexbox-Container |
+Die bestehende `isBot()` Funktion in `MeetingDetail.tsx` (Zeilen 486-489) kann durch den Import aus `participantUtils.ts` ersetzt werden, um Code-Duplikation zu vermeiden.
 
-## Zusaetzliche Pruefung
+## Ergebnis
 
-Falls die Blasen auch in der `SpeakerLegend`-Komponente (Zeile 56-70) das gleiche Problem haben, wird dort ebenfalls `w-fit` hinzugefuegt.
+Nach dieser Aenderung:
+- Die Teilnehmeranzahl in der Transkript-Uebersicht zeigt nur echte Meeting-Teilnehmer
+- Bots wie "Notetaker", "Recording Bot", "Assistant" werden nicht gezaehlt
+- Die Logik ist zentral und wiederverwendbar fuer zukuenftige Komponenten
 
-## Visuelles Ergebnis
+## Betroffene Dateien
 
-**Vorher:**
-```text
-┌──────────────────────────────────────┐  Hallo, wie geht es dir?
-│ Max Mustermann                       │
-└──────────────────────────────────────┘
-```
+| Datei | Aenderung |
+|-------|-----------|
+| `src/utils/participantUtils.ts` | Neue Datei mit Bot-Filter-Logik |
+| `src/components/transcripts/TranscriptCard.tsx` | Import und Nutzung von `countRealParticipants` |
+| `src/pages/MeetingDetail.tsx` | Optional: Import statt lokaler `isBot()` Funktion |
 
-**Nachher:**
-```text
-┌─────────────────┐  Hallo, wie geht es dir?
-│ Max Mustermann  │
-└─────────────────┘
-```
-
-Die Blase passt sich jetzt nur an die Laenge des Namens an, nicht an den umgebenden Container.
