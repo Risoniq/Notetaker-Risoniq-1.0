@@ -6,6 +6,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { de } from "date-fns/locale";
 import { useNavigate } from "react-router-dom";
 import { Recording } from "@/types/recording";
+import { countRealParticipants } from "@/utils/participantUtils";
 
 interface TranscriptCardProps {
   recording: Recording;
@@ -46,7 +47,7 @@ export const TranscriptCard = ({ recording, searchQuery }: TranscriptCardProps) 
     return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
   };
 
-  const participantCount = recording.participants?.length ?? 0;
+  const participantCount = countRealParticipants(recording.participants);
   const previewText = getPreviewText(recording.transcript_text);
 
   return (
