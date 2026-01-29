@@ -1,182 +1,153 @@
 
-
-# Bericht-Einstellungen und E-Mail-KI-Bearbeitung
+# Deep Dive Analyse Modal mit Kreisdiagrammen
 
 ## Uebersicht
 
-Der Benutzer moechte folgende drei Funktionen:
-1. **KI-gestuetzte E-Mail-Bearbeitung** (mit Claude/Lovable AI)
-2. **"Transkript neu laden" Button ueber dem Transkript** 
-3. **"Download Bericht" Button** mit einem Einstellungs-Layer (fuer Admin-Zwecke)
+Beim Klick auf "Deep Dive Analyse" soll sich ein Modal/Sheet oeffnen mit detaillierten Analysen in Form von Kreisdiagrammen:
 
----
+1. **Sprechanteile** - Wer hat wie viel gesprochen (basierend auf Woertern/Zeichen)
+2. **Offene Fragen** - Anzahl und Auflistung unbeantworteter Fragen im Meeting
+3. **Small Talk vs. Inhalt** - Prozentuale Aufteilung zwischen informellen und inhaltlichen Gespraechen
+4. **Kundenbeduerfnisse** - Erkannte Beduerfnisse von externen Teilnehmern (nicht der eigene Account)
 
-## 1. E-Mail mit KI bearbeiten
+## Technische Umsetzung
 
-### Aktuelle Situation
-Die Follow-Up E-Mail wird in der rechten Spalte angezeigt und kann nur kopiert werden.
+### 1. Neue Analyse-Utility: `src/utils/deepDiveAnalysis.ts`
 
-### Neue Funktion
-Ein "Mit KI bearbeiten" Button oeffnet ein Modal, in dem der Benutzer:
-- Die generierte E-Mail sieht
-- Anweisungen eingeben kann (z.B. "Mache die E-Mail formeller" oder "Fuege Deadline fuer To-Dos hinzu")
-- Die KI-generierte verbesserte Version erhaelt
+Diese Datei enthaelt Funktionen zur Transkript-Analyse:
 
-### Technische Umsetzung
+```typescript
+export interface DeepDiveAnalysis {
+  speakerShares: { name: string; words: number; percentage: number; isCustomer: boolean }[];
+  openQuestions: { question: string; speaker: string }[];
+  contentBreakdown: {
+    smallTalk: number;    // Prozent
+    business: number;     // Prozent
+  };
+  customerNeeds: { need: string; speaker: string; context: string }[];
+}
 
-**Neue Edge Function:** `supabase/functions/edit-email-ai/index.ts`
-- Nimmt die aktuelle E-Mail und Benutzeranweisungen entgegen
-- Verwendet Lovable AI (google/gemini-3-flash-preview) fuer die Bearbeitung
-- Gibt die ueberarbeitete E-Mail zurueck
+// Analysiert Sprechanteile basierend auf Wortanzahl
+export const analyzeSpeakerShares = (transcript: string, userEmail: string) => {...};
 
-**Neue Komponente:** `src/components/meeting/EmailEditModal.tsx`
-- Modal mit Textarea fuer Anweisungen
-- Vorschau der aktuellen und neuen E-Mail
-- "Uebernehmen" und "Abbrechen" Buttons
+// Findet offene Fragen (Fragesaetze ohne direkte Antwort)
+export const findOpenQuestions = (transcript: string) => {...};
 
-**Aenderung:** `src/pages/MeetingDetail.tsx`
-- Neuer State fuer E-Mail-Bearbeitung
-- Button "Mit KI bearbeiten" neben dem "E-Mail kopieren" Button
-- Integration des Modals
+// Kategorisiert Small Talk vs. geschaeftlichen Inhalt
+export const analyzeContentType = (transcript: string) => {...};
 
----
+// Extrahiert erkannte Kundenbeduerfnisse
+export const extractCustomerNeeds = (transcript: string, userEmail: string) => {...};
+```
 
-## 2. "Transkript neu laden" Button ueber dem Transkript
+**Kundenidentifikation:**
+- Vergleich des User-Emails mit den erkannten Sprechern
+- Sprecher die NICHT zum eigenen Account gehoeren = Kunden
+- Falls `participants` im Recording vorhanden, werden deren E-Mails geprueft
 
-### Aktuelle Situation
-Der Button befindet sich im Header der Seite (oben rechts neben dem Status-Badge).
+### 2. Neue Komponente: `src/components/meeting/DeepDiveModal.tsx`
 
-### Neue Platzierung
-Der Button wird zusaetzlich direkt ueber dem Transkript-Card angezeigt, zusammen mit dem "Download Bericht" Button.
+Ein grosses Sheet/Modal mit vier Sektionen:
 
-### Technische Umsetzung
+```text
++----------------------------------------------------------+
+|  Deep Dive Analyse                               [X]     |
++----------------------------------------------------------+
+|                                                          |
+|  [Kreisdiagramm: Sprechanteile]    [Kreisdiagramm:       |
+|   - Dominik Bauer: 45%              Small Talk/Inhalt]   |
+|   - Kunde A: 35%                    - Small Talk: 15%    |
+|   - Kunde B: 20%                    - Business: 85%      |
+|                                                          |
++----------------------------------------------------------+
+|                                                          |
+|  Offene Fragen (3)                                       |
+|  +----------------------------------------------------+  |
+|  | "Wann koennen wir mit der Lieferung rechnen?"      |  |
+|  | - gestellt von: Kunde A                            |  |
+|  +----------------------------------------------------+  |
+|                                                          |
++----------------------------------------------------------+
+|                                                          |
+|  Erkannte Kundenbeduerfnisse (4)                         |
+|  +----------------------------------------------------+  |
+|  | Schnellere Lieferzeiten                            |  |
+|  | Besserer Support                                   |  |
+|  | Preisreduktion bei Grossbestellung                 |  |
+|  +----------------------------------------------------+  |
+|                                                          |
++----------------------------------------------------------+
+```
 
-**Aenderung:** `src/pages/MeetingDetail.tsx`
-- Neue Button-Leiste oberhalb des Transkript-Cards
-- Enthaelt "Transkript neu laden" und "Download Bericht" Buttons
-- Wird nur angezeigt wenn `recording.transcript_text` existiert
+**Verwendete Chart-Komponenten:**
+- `recharts` PieChart fuer Kreisdiagramme (bereits als Dependency vorhanden)
+- `ChartContainer`, `ChartTooltip` aus `src/components/ui/chart.tsx`
 
----
+### 3. Integration in MeetingDetail.tsx
 
-## 3. "Download Bericht" mit Einstellungs-Layer
+**Aenderungen:**
+- Import der neuen Komponente
+- State fuer Modal-Sichtbarkeit: `const [showDeepDive, setShowDeepDive] = useState(false)`
+- useAuth Hook importieren fuer User-Email
+- Button onClick aendern: `onClick={() => setShowDeepDive(true)}`
+- Modal-Komponente einbinden mit Recording und User-Email als Props
 
-### Funktion
-Ein Button der ein Modal oeffnet mit konfigurierbaren Export-Optionen:
+## Analyse-Logik im Detail
 
-**Konfigurationsoptionen:**
-- Dateiformat: TXT, Markdown, PDF (zukuenftig)
-- Inhalt auswaehlen:
-  - Zusammenfassung
-  - Key Points
-  - Action Items
-  - Vollstaendiges Transkript
-  - Teilnehmerliste
-- E-Mail-Vorlage einbeziehen
-- Sprache der Ausgabe
+### Sprechanteile
+- Jede Zeile im Format `Name: Text` wird gezaehlt
+- Woerter pro Sprecher summiert
+- Prozentuale Verteilung berechnet
+- Eigener Account wird markiert (blau), Kunden in anderen Farben
 
-**Admin-Only Optionen (spaeter ausblendbar):**
-- Metadaten einbeziehen (IDs, Timestamps)
-- Debug-Informationen
-- Rohformat der Daten
+### Offene Fragen
+- Regex-Suche nach Fragesaetzen (`?` am Ende)
+- Pruefung ob die naechste Zeile eine Antwort ist
+- Fragen ohne direkte Antwort = "offen"
 
-### Technische Umsetzung
+### Small Talk Erkennung
+Keywords fuer Small Talk:
+- Begruessung: "Hallo", "Guten Tag", "Wie geht's"
+- Wetter: "Wetter", "Regen", "Sonne"
+- Smalltalk: "Wochenende", "Urlaub", "Familie"
 
-**Neue Komponente:** `src/components/meeting/ReportDownloadModal.tsx`
-- Modal mit Checkboxen fuer Inhaltsauswahl
-- Format-Dropdown
-- Admin-Bereich (kann spaeter mit Feature-Flag ausgeblendet werden)
-- Generiert und downloadet den Bericht
+Geschaeftlicher Inhalt:
+- Alles was NICHT zu Small Talk Keywords gehoert
 
-**Aenderung:** `src/pages/MeetingDetail.tsx`
-- State fuer Modal-Sichtbarkeit
-- Button "Download Bericht" in der Transkript-Leiste
-
----
+### Kundenbeduerfnisse
+KI-gesteuerte Analyse (optional via Edge Function) oder regelbasiert:
+- Suche nach Phrasen wie: "Wir brauchen...", "Wichtig waere...", "Koennen Sie..."
+- Nur von Kunden-Sprechern (nicht eigener Account)
 
 ## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `supabase/functions/edit-email-ai/index.ts` | Neue Edge Function fuer KI-E-Mail-Bearbeitung |
-| `src/components/meeting/EmailEditModal.tsx` | Neues Modal fuer E-Mail-Bearbeitung mit KI |
-| `src/components/meeting/ReportDownloadModal.tsx` | Neues Modal fuer Bericht-Einstellungen |
-| `src/pages/MeetingDetail.tsx` | Integration beider Modals und Button-Platzierung |
-| `supabase/config.toml` | Edge Function Konfiguration |
+| `src/utils/deepDiveAnalysis.ts` | Neue Utility mit Analyse-Funktionen |
+| `src/components/meeting/DeepDiveModal.tsx` | Neues Modal mit Kreisdiagrammen |
+| `src/pages/MeetingDetail.tsx` | Integration des Modals und Button-Handler |
 
----
-
-## UI-Layout Aenderungen
-
-### Aktuelle Struktur (Header):
-```text
-[<] Meeting Titel                     [Transkript neu laden] [Status]
-```
-
-### Neue Struktur (ueber Transkript-Card):
-```text
-+--------------------------------------------------------+
-| [RefreshCw] Transkript neu laden    [Download] Bericht |
-+--------------------------------------------------------+
-| Transkript                                             |
-| [Quality Banner]                                       |
-| [Transkript Inhalt...]                                 |
-+--------------------------------------------------------+
-```
-
-### Neue E-Mail Sektion:
-```text
-+----------------------------------+
-| Follow-Up E-Mail                 |
-+----------------------------------+
-| [E-Mail Vorschau]                |
-+----------------------------------+
-| [Mit KI bearbeiten] [Kopieren]   |
-+----------------------------------+
-```
-
----
-
-## Edge Function: edit-email-ai
+## Chart-Konfiguration
 
 ```typescript
-// Verwendet Lovable AI fuer E-Mail-Bearbeitung
-// Input: { email: string, instructions: string, recording_context: {...} }
-// Output: { edited_email: string }
+// Farbschema fuer Sprecher-Diagramm
+const speakerColors = {
+  own: 'hsl(210, 80%, 55%)',      // Blau fuer eigenen Account
+  customer1: 'hsl(150, 70%, 50%)', // Gruen
+  customer2: 'hsl(30, 80%, 55%)',  // Orange
+  customer3: 'hsl(280, 60%, 55%)', // Lila
+};
 
-const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${LOVABLE_API_KEY}`,
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({
-    model: "google/gemini-3-flash-preview",
-    messages: [
-      { role: "system", content: "Du bist ein professioneller E-Mail-Assistent..." },
-      { role: "user", content: `Bearbeite diese E-Mail: ${email}\n\nAnweisungen: ${instructions}` }
-    ],
-    stream: false,
-  }),
-});
+// Farbschema fuer Small Talk/Business
+const contentColors = {
+  smallTalk: 'hsl(60, 70%, 50%)',  // Gelb
+  business: 'hsl(210, 80%, 55%)',  // Blau
+};
 ```
 
----
+## Erweiterte Optionen (Zukunft)
 
-## Feature-Flag fuer Admin-Optionen
-
-Um die Admin-Optionen spaeter auszublenden:
-
-```typescript
-// In ReportDownloadModal.tsx
-const isAdmin = true; // Spaeter: useAdminCheck() oder Feature-Flag
-
-{isAdmin && (
-  <div className="border-t pt-4 mt-4">
-    <p className="text-sm font-medium text-muted-foreground mb-2">
-      Erweiterte Optionen (Admin)
-    </p>
-    {/* Admin-only Optionen */}
-  </div>
-)}
-```
-
+- KI-gestuetzte Beduerfnis-Erkennung via Edge Function
+- Export der Deep Dive Analyse als PDF
+- Vergleich mit frueheren Meetings desselben Kunden
+- Sentiment-Analyse pro Sprecher
