@@ -153,7 +153,7 @@ export const MeetingChatWidget = () => {
       
       {/* Messages Area */}
       <ScrollArea className="h-48 mb-3 pr-2" ref={scrollRef}>
-        {messages.length === 0 ? <div className="text-center text-muted-foreground text-sm py-8">
+        {messages.length === 0 ? <div className="text-center text-primary-foreground text-sm py-8">
             <p>Stelle Fragen zu deinen Meetings:</p>
             <p className="text-xs mt-2 opacity-70">
               z.B. "Was waren die wichtigsten Action Items?" oder "Welche offenen Themen gibt es?"
