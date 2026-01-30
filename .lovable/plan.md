@@ -1,153 +1,195 @@
 
-# Deep Dive Analyse Modal mit Kreisdiagrammen
+# Dashboard Deep Dive Analyse - Aggregierte Meeting-Metriken
 
 ## Uebersicht
 
-Beim Klick auf "Deep Dive Analyse" soll sich ein Modal/Sheet oeffnen mit detaillierten Analysen in Form von Kreisdiagrammen:
+Neben dem "Bot zu Meeting senden" Fenster wird ein gleichgrosses Fenster mit einer aggregierten Deep Dive Analyse hinzugefuegt. Dieses zeigt Auswertungen ueber ALLE Meetings des Accounts mit Metriken in Kreisdiagrammen und Statistiken.
 
-1. **Sprechanteile** - Wer hat wie viel gesprochen (basierend auf Woertern/Zeichen)
-2. **Offene Fragen** - Anzahl und Auflistung unbeantworteter Fragen im Meeting
-3. **Small Talk vs. Inhalt** - Prozentuale Aufteilung zwischen informellen und inhaltlichen Gespraechen
-4. **Kundenbeduerfnisse** - Erkannte Beduerfnisse von externen Teilnehmern (nicht der eigene Account)
+## Neue Komponente: AccountAnalyticsCard
+
+Ein Dashboard-Widget das folgende aggregierte Metriken aus allen Meetings anzeigt:
+
+```text
++------------------------------------------+------------------------------------------+
+| Bot zu Meeting senden                    | Account-Analyse                          |
+|                                          |                                          |
+| [Meeting-Link eingeben]                  | [Pie: Sprechanteile]  [Pie: Content]    |
+| [Bot senden]                             |                                          |
+|                                          | Gesamt: 12 Meetings | 8.5h Aufnahmezeit  |
+| Unterstuetzte Plattformen:               | 47 Action Items | 23 offene Fragen       |
+| Teams, Meet, Zoom (soon), Webex (soon)   |                                          |
++------------------------------------------+ [Deep Dive oeffnen ->]                   |
+                                           +------------------------------------------+
+```
+
+## Aggregierte Metriken
+
+Aus allen abgeschlossenen Meetings (`status = 'done'`) werden folgende Daten aggregiert:
+
+### Uebersichts-Statistiken
+- Gesamtanzahl Meetings
+- Gesamte Aufnahmezeit (Stunden)
+- Durchschnittliche Meeting-Dauer
+- Anzahl Action Items insgesamt
+- Anzahl Key Points insgesamt
+- Anzahl Teilnehmer insgesamt
+
+### Kreisdiagramme (wie bei einzelnem Meeting)
+1. **Aggregierte Sprechanteile**: Wer spricht am meisten ueber alle Meetings
+2. **Business vs. Small Talk**: Durchschnitt ueber alle Transkripte
+
+### Button zum Detail-Layer
+Ein Button "Analyse oeffnen" oeffnet ein grosses Modal/Sheet mit detaillierteren Auswertungen:
+- Zeitlicher Verlauf der Meetings (Linienchart)
+- Top-Sprecher ueber alle Meetings
+- Haeufigste offene Fragen-Themen
+- Haeufigste Kundenbeduerfnisse
+- Meeting-Effizienz-Score (Business-Anteil, Action-Items pro Stunde)
+
+---
 
 ## Technische Umsetzung
 
-### 1. Neue Analyse-Utility: `src/utils/deepDiveAnalysis.ts`
-
-Diese Datei enthaelt Funktionen zur Transkript-Analyse:
+### 1. Neue Utility: `src/utils/accountAnalytics.ts`
 
 ```typescript
-export interface DeepDiveAnalysis {
-  speakerShares: { name: string; words: number; percentage: number; isCustomer: boolean }[];
-  openQuestions: { question: string; speaker: string }[];
-  contentBreakdown: {
-    smallTalk: number;    // Prozent
-    business: number;     // Prozent
-  };
-  customerNeeds: { need: string; speaker: string; context: string }[];
+export interface AccountAnalytics {
+  totalMeetings: number;
+  totalDurationMinutes: number;
+  totalActionItems: number;
+  totalKeyPoints: number;
+  totalParticipants: number;
+  averageDuration: number;
+  
+  // Aggregierte Deep Dive Daten
+  aggregatedSpeakerShares: SpeakerShare[];
+  aggregatedContentBreakdown: ContentBreakdown;
+  aggregatedOpenQuestions: OpenQuestion[];
+  aggregatedCustomerNeeds: CustomerNeed[];
+  
+  // Zeitliche Daten fuer Charts
+  meetingsPerWeek: { week: string; count: number }[];
+  durationPerWeek: { week: string; minutes: number }[];
 }
 
-// Analysiert Sprechanteile basierend auf Wortanzahl
-export const analyzeSpeakerShares = (transcript: string, userEmail: string) => {...};
-
-// Findet offene Fragen (Fragesaetze ohne direkte Antwort)
-export const findOpenQuestions = (transcript: string) => {...};
-
-// Kategorisiert Small Talk vs. geschaeftlichen Inhalt
-export const analyzeContentType = (transcript: string) => {...};
-
-// Extrahiert erkannte Kundenbeduerfnisse
-export const extractCustomerNeeds = (transcript: string, userEmail: string) => {...};
+export const calculateAccountAnalytics = (
+  recordings: Recording[],
+  userEmail: string | null
+): AccountAnalytics => { ... }
 ```
 
-**Kundenidentifikation:**
-- Vergleich des User-Emails mit den erkannten Sprechern
-- Sprecher die NICHT zum eigenen Account gehoeren = Kunden
-- Falls `participants` im Recording vorhanden, werden deren E-Mails geprueft
+### 2. Neue Komponente: `src/components/dashboard/AccountAnalyticsCard.tsx`
 
-### 2. Neue Komponente: `src/components/meeting/DeepDiveModal.tsx`
+Diese Komponente:
+- Laedt alle abgeschlossenen Recordings
+- Berechnet aggregierte Metriken
+- Zeigt Mini-Kreisdiagramme und Statistiken
+- Hat einen Button zum Oeffnen des Detail-Layers
 
-Ein grosses Sheet/Modal mit vier Sektionen:
+### 3. Neues Modal: `src/components/dashboard/AccountAnalyticsModal.tsx`
 
-```text
-+----------------------------------------------------------+
-|  Deep Dive Analyse                               [X]     |
-+----------------------------------------------------------+
-|                                                          |
-|  [Kreisdiagramm: Sprechanteile]    [Kreisdiagramm:       |
-|   - Dominik Bauer: 45%              Small Talk/Inhalt]   |
-|   - Kunde A: 35%                    - Small Talk: 15%    |
-|   - Kunde B: 20%                    - Business: 85%      |
-|                                                          |
-+----------------------------------------------------------+
-|                                                          |
-|  Offene Fragen (3)                                       |
-|  +----------------------------------------------------+  |
-|  | "Wann koennen wir mit der Lieferung rechnen?"      |  |
-|  | - gestellt von: Kunde A                            |  |
-|  +----------------------------------------------------+  |
-|                                                          |
-+----------------------------------------------------------+
-|                                                          |
-|  Erkannte Kundenbeduerfnisse (4)                         |
-|  +----------------------------------------------------+  |
-|  | Schnellere Lieferzeiten                            |  |
-|  | Besserer Support                                   |  |
-|  | Preisreduktion bei Grossbestellung                 |  |
-|  +----------------------------------------------------+  |
-|                                                          |
-+----------------------------------------------------------+
+Das vollstaendige Analyse-Modal mit:
+- Groessere Kreisdiagramme
+- Zeitliche Verlaufs-Charts (Linienchart mit recharts)
+- Detaillierte Listen (Top-Sprecher, Top-Fragen, Top-Beduerfnisse)
+- Export-Optionen
+
+### 4. Aenderungen: `src/pages/Index.tsx`
+
+```typescript
+{/* Bot-Steuerung - nur wenn Kontingent verfuegbar */}
+{!quota?.is_exhausted && (
+  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <GlassCard title="Bot zu Meeting senden">
+      <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
+    </GlassCard>
+    
+    <GlassCard title="Account-Analyse">
+      <AccountAnalyticsCard />
+    </GlassCard>
+  </div>
+)}
 ```
 
-**Verwendete Chart-Komponenten:**
-- `recharts` PieChart fuer Kreisdiagramme (bereits als Dependency vorhanden)
-- `ChartContainer`, `ChartTooltip` aus `src/components/ui/chart.tsx`
-
-### 3. Integration in MeetingDetail.tsx
-
-**Aenderungen:**
-- Import der neuen Komponente
-- State fuer Modal-Sichtbarkeit: `const [showDeepDive, setShowDeepDive] = useState(false)`
-- useAuth Hook importieren fuer User-Email
-- Button onClick aendern: `onClick={() => setShowDeepDive(true)}`
-- Modal-Komponente einbinden mit Recording und User-Email als Props
-
-## Analyse-Logik im Detail
-
-### Sprechanteile
-- Jede Zeile im Format `Name: Text` wird gezaehlt
-- Woerter pro Sprecher summiert
-- Prozentuale Verteilung berechnet
-- Eigener Account wird markiert (blau), Kunden in anderen Farben
-
-### Offene Fragen
-- Regex-Suche nach Fragesaetzen (`?` am Ende)
-- Pruefung ob die naechste Zeile eine Antwort ist
-- Fragen ohne direkte Antwort = "offen"
-
-### Small Talk Erkennung
-Keywords fuer Small Talk:
-- Begruessung: "Hallo", "Guten Tag", "Wie geht's"
-- Wetter: "Wetter", "Regen", "Sonne"
-- Smalltalk: "Wochenende", "Urlaub", "Familie"
-
-Geschaeftlicher Inhalt:
-- Alles was NICHT zu Small Talk Keywords gehoert
-
-### Kundenbeduerfnisse
-KI-gesteuerte Analyse (optional via Edge Function) oder regelbasiert:
-- Suche nach Phrasen wie: "Wir brauchen...", "Wichtig waere...", "Koennen Sie..."
-- Nur von Kunden-Sprechern (nicht eigener Account)
+---
 
 ## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/utils/deepDiveAnalysis.ts` | Neue Utility mit Analyse-Funktionen |
-| `src/components/meeting/DeepDiveModal.tsx` | Neues Modal mit Kreisdiagrammen |
-| `src/pages/MeetingDetail.tsx` | Integration des Modals und Button-Handler |
+| `src/utils/accountAnalytics.ts` | Neue Utility fuer aggregierte Berechnungen |
+| `src/components/dashboard/AccountAnalyticsCard.tsx` | Neues Dashboard-Widget mit Mini-Charts |
+| `src/components/dashboard/AccountAnalyticsModal.tsx` | Neues Detail-Modal mit vollstaendiger Analyse |
+| `src/pages/Index.tsx` | Grid-Layout mit zwei gleichgrossen Cards |
 
-## Chart-Konfiguration
+---
 
-```typescript
-// Farbschema fuer Sprecher-Diagramm
-const speakerColors = {
-  own: 'hsl(210, 80%, 55%)',      // Blau fuer eigenen Account
-  customer1: 'hsl(150, 70%, 50%)', // Gruen
-  customer2: 'hsl(30, 80%, 55%)',  // Orange
-  customer3: 'hsl(280, 60%, 55%)', // Lila
-};
+## UI Design
 
-// Farbschema fuer Small Talk/Business
-const contentColors = {
-  smallTalk: 'hsl(60, 70%, 50%)',  // Gelb
-  business: 'hsl(210, 80%, 55%)',  // Blau
-};
+### AccountAnalyticsCard (kompakte Ansicht)
+
+```text
++--------------------------------------------------+
+| Account-Analyse                                  |
++--------------------------------------------------+
+|                                                  |
+| +------------------+  +------------------+       |
+| | [Pie Chart]      |  | [Pie Chart]      |       |
+| | Sprechanteile    |  | Business/SmallT  |       |
+| +------------------+  +------------------+       |
+|                                                  |
+| +----------------------------------------------+ |
+| | 12 Meetings | 8.5h total | 42min avg        | |
+| | 47 Action Items | 156 Key Points            | |
+| +----------------------------------------------+ |
+|                                                  |
+| [TrendingUp] Deep Dive Analyse oeffnen    [->]   |
++--------------------------------------------------+
 ```
 
-## Erweiterte Optionen (Zukunft)
+### AccountAnalyticsModal (Detail-Ansicht)
 
-- KI-gestuetzte Beduerfnis-Erkennung via Edge Function
-- Export der Deep Dive Analyse als PDF
-- Vergleich mit frueheren Meetings desselben Kunden
-- Sentiment-Analyse pro Sprecher
+```text
++----------------------------------------------------------------+
+| Account-Analyse - Alle Meetings                          [X]   |
++----------------------------------------------------------------+
+|                                                                |
+| Uebersicht                                                     |
+| +------------+ +------------+ +------------+ +------------+    |
+| | 12         | | 8.5h       | | 47         | | 23         |    |
+| | Meetings   | | Aufnahme   | | To-Dos     | | Fragen     |    |
+| +------------+ +------------+ +------------+ +------------+    |
+|                                                                |
+| [Grosses Pie: Sprechanteile]    [Grosses Pie: Content]         |
+|                                                                |
+| Meetings pro Woche                                             |
+| [Line Chart: Zeitlicher Verlauf]                               |
+|                                                                |
+| Top Sprecher                    Haeufigste Beduerfnisse        |
+| 1. Max Mustermann (45%)        1. Schnellere Lieferung         |
+| 2. Kunde A (30%)               2. Besserer Support             |
+| 3. Kunde B (25%)               3. Preisreduktion               |
+|                                                                |
++----------------------------------------------------------------+
+```
+
+---
+
+## Datenfluss
+
+1. **AccountAnalyticsCard** mounted
+2. Laedt alle Recordings mit `status = 'done'` via Supabase
+3. Fuer jedes Recording mit `transcript_text`:
+   - Fuehrt `performDeepDiveAnalysis()` aus
+   - Aggregiert die Ergebnisse
+4. Zeigt kompakte Uebersicht mit Mini-Charts
+5. Bei Klick auf "Deep Dive oeffnen" -> Modal mit Details
+
+---
+
+## Performance-Ueberlegungen
+
+- **Lazy Loading**: Analyse nur fuer sichtbare/relevante Meetings
+- **Caching**: Aggregierte Daten in State cachen
+- **Limitierung**: Maximal 50 neueste Meetings analysieren
+- **useMemo**: Teure Berechnungen memoisieren
