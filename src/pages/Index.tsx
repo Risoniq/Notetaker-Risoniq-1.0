@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { RecordingViewer } from "@/components/RecordingViewer";
 import { RecordingsList } from "@/components/recordings/RecordingsList";
-
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
-
+import { AccountAnalyticsCard } from "@/components/dashboard/AccountAnalyticsCard";
 import { Toaster } from "@/components/ui/toaster";
 import { RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -69,12 +68,18 @@ const Index = () => {
           </Alert>
         )}
 
-        {/* Bot-Steuerung - nur wenn Kontingent verfügbar */}
+        {/* Bot-Steuerung und Account-Analyse - nur wenn Kontingent verfügbar */}
         {!quota?.is_exhausted && (
           <div className="space-y-5">
-            <GlassCard title="Bot zu Meeting senden">
-              <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
-            </GlassCard>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              <GlassCard title="Bot zu Meeting senden">
+                <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
+              </GlassCard>
+              
+              <GlassCard title="Account-Analyse">
+                <AccountAnalyticsCard />
+              </GlassCard>
+            </div>
             
             {/* Active Recording Status */}
             {activeRecordingId && (
