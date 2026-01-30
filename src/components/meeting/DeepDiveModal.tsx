@@ -222,42 +222,6 @@ export const DeepDiveModal = ({
               </Card>
             </div>
 
-            {/* Offene Fragen */}
-            <Card className="border rounded-2xl">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <HelpCircle className="h-4 w-4 text-warning" />
-                  Offene Fragen
-                  <Badge variant="secondary" className="ml-auto rounded-full">
-                    {analysis.openQuestions.length}
-                  </Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {analysis.openQuestions.length > 0 ? (
-                  <div className="space-y-3">
-                    {analysis.openQuestions.map((q, index) => (
-                      <div 
-                        key={index} 
-                        className="p-3 rounded-xl bg-secondary/30 hover:bg-secondary/50 transition-colors"
-                      >
-                        <p className="text-sm text-foreground">
-                          "{q.question}"
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Gestellt von: <span className="font-medium">{q.speaker}</span>
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="py-8 text-center text-muted-foreground text-sm">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    Keine offenen Fragen erkannt
-                  </div>
-                )}
-              </CardContent>
-            </Card>
 
             {/* Kundenbedürfnisse */}
             <Card className="border rounded-2xl">
@@ -313,18 +277,12 @@ export const DeepDiveModal = ({
             {/* Zusammenfassung Stats */}
             <Card className="border rounded-2xl bg-gradient-to-br from-primary/5 to-accent/5">
               <CardContent className="p-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="text-center">
                     <p className="text-2xl font-bold text-primary">
                       {analysis.speakerShares.length}
                     </p>
                     <p className="text-xs text-muted-foreground">Sprecher</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-2xl font-bold text-warning">
-                      {analysis.openQuestions.length}
-                    </p>
-                    <p className="text-xs text-muted-foreground">Offene Fragen</p>
                   </div>
                   <div className="text-center">
                     <p className="text-2xl font-bold text-accent">
