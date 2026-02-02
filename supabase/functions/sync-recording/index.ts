@@ -622,8 +622,9 @@ Erstellt: ${new Date(recording.created_at || Date.now()).toISOString()}
       }
     }
 
-    // 8. Wenn fertig und Transkript vorhanden, automatisch Analyse starten
-    if (status === 'done' && updates.transcript_text) {
+    // 8. Wenn fertig und Transkript vorhanden (oder force_resync), automatisch Analyse starten
+    const hasTranscript = updates.transcript_text || recording.transcript_text;
+    if (status === 'done' && hasTranscript && (updates.transcript_text || force_resync)) {
       console.log('Starte automatische Transkript-Analyse...')
       try {
         const analyzeResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-transcript`, {
