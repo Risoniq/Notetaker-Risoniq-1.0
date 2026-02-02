@@ -1,121 +1,58 @@
 
-# Plan: MeetingDetail-Seite für Impersonation anpassen
+# Plan: Analyse bei manuellem Neu-Laden automatisch starten
 
 ## Problem
 
-Wenn ein Admin die "Ansicht anzeigen"-Funktion nutzt und ein Meeting eines anderen Benutzers öffnet, erscheint "Synchronisierung fehlgeschlagen", weil:
+Aktuell wird die KI-Analyse nur gestartet, wenn ein **neues** Transkript von Recall.ai heruntergeladen wird (Zeile 626):
 
-1. `fetchRecording()` macht eine direkte Supabase-Abfrage
-2. Die RLS-Policies blockieren den Zugriff, da der Admin nicht der Eigentümer ist
-3. Obwohl die `sync-recording` Edge Function Admin-Zugriff erlaubt, scheitert bereits das initiale Laden des Recordings
+```typescript
+if (status === 'done' && updates.transcript_text) {
+  // Nur wenn neues Transkript vorhanden
+}
+```
+
+Bei einem manuellen "Transkript neu laden" (`force_resync = true`) ohne neues Transkript wird die Analyse **nicht** erneut gestartet. Das bedeutet, Benutzer können Analysefehler nicht selbst beheben.
 
 ## Lösung
 
-### Schritt 1: admin-view-user-data erweitern
+Die Bedingung für den Analyse-Start in `sync-recording` erweitern, sodass die Analyse auch bei `force_resync` ausgeführt wird - unabhängig davon, ob ein neues Transkript heruntergeladen wurde.
 
-Datei: `supabase/functions/admin-view-user-data/index.ts`
+## Änderung
 
-Neuen `data_type: 'single_recording'` hinzufügen, der ein einzelnes Recording per ID abruft:
+### Datei: `supabase/functions/sync-recording/index.ts`
+
+**Zeile 625-626 (ca.)** - Aktuelle Bedingung:
 
 ```typescript
-case 'single_recording': {
-  const { recording_id } = await req.json();
-  const { data: recording, error } = await supabaseAdmin
-    .from('recordings')
-    .select('*')
-    .eq('id', recording_id)
-    .eq('user_id', target_user_id)
-    .maybeSingle();
-
-  if (error) throw error;
-  responseData = { recording };
-  break;
-}
+// 8. Wenn fertig und Transkript vorhanden, automatisch Analyse starten
+if (status === 'done' && updates.transcript_text) {
 ```
 
-### Schritt 2: MeetingDetail.tsx Impersonation-Support
+**Neue Bedingung:**
 
-Datei: `src/pages/MeetingDetail.tsx`
+```typescript
+// 8. Wenn fertig und Transkript vorhanden (oder force_resync), automatisch Analyse starten
+const hasTranscript = updates.transcript_text || recording.transcript_text;
+if (status === 'done' && hasTranscript && (updates.transcript_text || force_resync)) {
+```
 
-Änderungen:
-- `useImpersonation` Hook importieren und nutzen
-- `fetchRecording()` anpassen:
-  - Im Impersonation-Modus: `admin-view-user-data` Edge Function mit `data_type: 'single_recording'` aufrufen
-  - Sonst: bestehende direkte Supabase-Abfrage beibehalten
-- Impersonation-Banner bereits oben anzeigen (bereits in AppLayout)
+### Logik erklärt
 
-## Betroffene Dateien
+| Szenario | Analyse starten? |
+|----------|------------------|
+| Erstes Sync mit neuem Transkript | Ja (wie bisher) |
+| Normales Auto-Sync ohne Änderung | Nein (wie bisher) |
+| `force_resync` mit vorhandenem Transkript | **Ja (NEU!)** |
+
+## Betroffene Datei
 
 | Datei | Aktion |
 |-------|--------|
-| `supabase/functions/admin-view-user-data/index.ts` | `single_recording` case hinzufügen |
-| `src/pages/MeetingDetail.tsx` | Impersonation-Support in `fetchRecording()` |
+| `supabase/functions/sync-recording/index.ts` | Bedingung für Analyse-Start erweitern |
 
-## Technische Details
+## Ergebnis
 
-### fetchRecording() Anpassung
-
-```typescript
-const fetchRecording = useCallback(async () => {
-  if (!id) return null;
-  
-  try {
-    // Wenn Admin impersoniert, Edge Function nutzen
-    if (isAdmin && isImpersonating && impersonatedUserId) {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return null;
-
-      const { data, error } = await supabase.functions.invoke('admin-view-user-data', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { 
-          target_user_id: impersonatedUserId, 
-          data_type: 'single_recording',
-          recording_id: id 
-        },
-      });
-
-      if (error) throw error;
-      return data?.recording as Recording | null;
-    }
-
-    // Normale Abfrage für eigene Recordings
-    const { data, error } = await supabase
-      .from('recordings')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data as unknown as Recording | null;
-  } catch (error) {
-    console.error('Error fetching recording:', error);
-    return null;
-  }
-}, [id, isAdmin, isImpersonating, impersonatedUserId]);
-```
-
-### Edge Function Request-Format
-
-Die Edge Function erwartet für `single_recording`:
-```json
-{
-  "target_user_id": "uuid-des-benutzers",
-  "data_type": "single_recording",
-  "recording_id": "uuid-des-recordings"
-}
-```
-
-Die Validierung prüft, dass das Recording dem `target_user_id` gehört, um sicherzustellen, dass der Admin nur Recordings des impersonierten Benutzers abrufen kann.
-
-## Sicherheit
-
-- Admin-Berechtigung wird in der Edge Function geprüft
-- Das Recording muss dem `target_user_id` gehören
-- Keine Möglichkeit, beliebige Recordings abzurufen
-
-## Nach der Implementierung
-
-1. Als Admin einloggen
-2. Im Admin Dashboard "Ansicht anzeigen" für einen Benutzer klicken
-3. Ein Meeting des Benutzers öffnen
-4. Das Meeting sollte korrekt laden und die Synchronisierung funktionieren
+- Der bestehende "Transkript neu laden" Button startet jetzt auch die Analyse neu
+- Kein neuer Button nötig
+- Benutzer können Analysefehler selbst beheben durch Klick auf "Transkript neu laden"
+- Bei normalen Auto-Syncs bleibt das Verhalten unverändert (keine unnötigen Analyse-Aufrufe)
