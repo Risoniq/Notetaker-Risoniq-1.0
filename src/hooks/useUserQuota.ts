@@ -1,5 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
+import { useAdminCheck } from "@/hooks/useAdminCheck";
 
 export interface UserQuota {
   max_minutes: number;
@@ -12,8 +14,10 @@ export interface UserQuota {
 export function useUserQuota() {
   const [quota, setQuota] = useState<UserQuota | null>(null);
   const [loading, setLoading] = useState(true);
+  const { isImpersonating, impersonatedUserId } = useImpersonation();
+  const { isAdmin } = useAdminCheck();
 
-  const fetchQuota = async () => {
+  const fetchQuota = useCallback(async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
@@ -21,6 +25,34 @@ export function useUserQuota() {
         return;
       }
 
+      // If admin is impersonating, use edge function to fetch target user's quota
+      if (isAdmin && isImpersonating && impersonatedUserId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('admin-view-user-data', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: { 
+            target_user_id: impersonatedUserId, 
+            data_type: 'quota' 
+          },
+        });
+
+        if (error) {
+          console.error('Error fetching impersonated quota:', error);
+        } else if (data?.quota) {
+          setQuota(data.quota);
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Normal flow for current user
       // Quota-Einstellungen abrufen
       const { data: quotaData } = await supabase
         .from('user_quotas')
@@ -52,11 +84,11 @@ export function useUserQuota() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdmin, isImpersonating, impersonatedUserId]);
 
   useEffect(() => {
     fetchQuota();
-  }, []);
+  }, [fetchQuota]);
 
   return { quota, loading, refetch: fetchQuota };
 }

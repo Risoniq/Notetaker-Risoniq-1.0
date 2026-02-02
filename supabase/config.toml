@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.single-meeting-chat]
 verify_jwt = false
+
+[functions.admin-view-user-data]
+verify_jwt = false

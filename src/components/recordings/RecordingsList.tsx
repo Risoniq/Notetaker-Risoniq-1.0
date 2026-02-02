@@ -5,14 +5,46 @@ import { Recording } from "@/types/recording";
 import { RecordingCard } from "./RecordingCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FolderOpen } from "lucide-react";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
+import { useAdminCheck } from "@/hooks/useAdminCheck";
 
 export const RecordingsList = () => {
   const [recordings, setRecordings] = useState<Recording[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const { isImpersonating, impersonatedUserId } = useImpersonation();
+  const { isAdmin } = useAdminCheck();
 
   const fetchRecordings = async () => {
     try {
+      // If admin is impersonating, use edge function to fetch target user's recordings
+      if (isAdmin && isImpersonating && impersonatedUserId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setIsLoading(false);
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('admin-view-user-data', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: { 
+            target_user_id: impersonatedUserId, 
+            data_type: 'recordings' 
+          },
+        });
+
+        if (error) {
+          console.error('Error fetching impersonated recordings:', error);
+        } else {
+          setRecordings((data?.recordings || []) as unknown as Recording[]);
+        }
+        setIsLoading(false);
+        return;
+      }
+
+      // Normal flow for current user
       const { data, error } = await supabase
         .from('recordings')
         .select('*')
@@ -30,22 +62,24 @@ export const RecordingsList = () => {
   useEffect(() => {
     fetchRecordings();
 
-    // Realtime subscription for updates
-    const channel = supabase
-      .channel('recordings-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'recordings' },
-        () => {
-          fetchRecordings();
-        }
-      )
-      .subscribe();
+    // Realtime subscription for updates (only for non-impersonated view)
+    if (!isImpersonating) {
+      const channel = supabase
+        .channel('recordings-changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'recordings' },
+          () => {
+            fetchRecordings();
+          }
+        )
+        .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
+  }, [isAdmin, isImpersonating, impersonatedUserId]);
 
   if (isLoading) {
     return (

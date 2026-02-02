@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings } from 'lucide-react';
+import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye } from 'lucide-react';
 import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
+import { useImpersonation } from '@/contexts/ImpersonationContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -68,6 +69,7 @@ interface Summary {
 const Admin = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const { startImpersonating } = useImpersonation();
   const [users, setUsers] = useState<UserData[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,6 +79,11 @@ const Admin = () => {
   const [quotaDialogOpen, setQuotaDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [quotaHours, setQuotaHours] = useState<number>(2);
+
+  const handleViewAsUser = (user: UserData) => {
+    startImpersonating(user.id, user.email);
+    navigate('/');
+  };
 
   const fetchData = async () => {
     try {
@@ -457,6 +464,16 @@ const Admin = () => {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
+                            {/* View as user button - available for all users */}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleViewAsUser(user)}
+                              title="Als Benutzer anzeigen"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            
                             {!user.is_admin && (
                               <>
                                 {user.is_approved ? (
