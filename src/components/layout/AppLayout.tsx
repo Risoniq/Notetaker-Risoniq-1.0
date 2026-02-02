@@ -4,6 +4,7 @@ import { LayoutDashboard, Calendar, FileText, Settings, Shield, Mic } from "luci
 import { cn } from "@/lib/utils";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -26,6 +27,9 @@ export function AppLayout({ children }: AppLayoutProps) {
       "bg-gradient-to-b from-sky-50 via-slate-50 to-slate-100",
       "dark:from-slate-900 dark:via-slate-900 dark:to-slate-950"
     )}>
+      {/* Impersonation Banner */}
+      <ImpersonationBanner />
+      
       {/* Header Navigation */}
       <header className={cn(
         "h-16 flex items-center justify-between px-6 shrink-0",

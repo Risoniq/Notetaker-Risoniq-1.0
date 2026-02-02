@@ -7,6 +7,7 @@ import { ThemeProvider } from "next-themes";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AdminRoute } from "@/components/auth/AdminRoute";
 import { TourProvider } from "@/components/onboarding/TourProvider";
+import { ImpersonationProvider } from "@/contexts/ImpersonationContext";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
@@ -24,6 +25,7 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TourProvider>
+      <ImpersonationProvider>
       <TooltipProvider>
       <Toaster />
       <Sonner />
@@ -44,6 +46,7 @@ const App = () => (
         </Routes>
       </BrowserRouter>
       </TooltipProvider>
+      </ImpersonationProvider>
       </TourProvider>
     </ThemeProvider>
   </QueryClientProvider>

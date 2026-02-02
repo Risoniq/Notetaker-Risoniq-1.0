@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowLeft, Bell, Bot, Check, Download, FileText, HelpCircle, Loader2, LogOut, Mic, PlayCircle, RefreshCw, Shield, Upload, Volume2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
@@ -14,11 +14,15 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useImpersonation } from "@/contexts/ImpersonationContext";
+import { useAdminCheck } from "@/hooks/useAdminCheck";
 
 const Settings = () => {
   const { toast } = useToast();
   const { resetTour } = useOnboardingTour();
   const navigate = useNavigate();
+  const { isImpersonating, impersonatedUserId, impersonatedUserEmail } = useImpersonation();
+  const { isAdmin } = useAdminCheck();
   
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -44,52 +48,104 @@ const Settings = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Load saved bot settings from database (with localStorage fallback)
-  useEffect(() => {
-    const loadBotSettings = async () => {
-      try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        
-        // Try to load from database first
-        const { data, error } = await supabase
-          .from('recall_calendar_users')
-          .select('bot_name, bot_avatar_url')
-          .eq('supabase_user_id', user.id)
-          .maybeSingle();
-        
-        if (data) {
-          if (data.bot_name) {
-            setBotName(data.bot_name);
-            localStorage.setItem('bot:name', data.bot_name);
+  const loadBotSettings = useCallback(async () => {
+    try {
+      // If admin is impersonating, use edge function to fetch target user's bot settings
+      if (isAdmin && isImpersonating && impersonatedUserId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const { data, error } = await supabase.functions.invoke('admin-view-user-data', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: { 
+            target_user_id: impersonatedUserId, 
+            data_type: 'bot_settings' 
+          },
+        });
+
+        if (error) {
+          console.error('Error fetching impersonated bot settings:', error);
+        } else if (data?.bot_settings) {
+          if (data.bot_settings.bot_name) {
+            setBotName(data.bot_settings.bot_name);
           }
-          if (data.bot_avatar_url) {
-            setBotAvatarUrl(data.bot_avatar_url);
-            localStorage.setItem('bot:avatarUrl', data.bot_avatar_url);
+          if (data.bot_settings.bot_avatar_url) {
+            setBotAvatarUrl(data.bot_settings.bot_avatar_url);
           }
-        } else {
-          // Fallback to localStorage for backwards compatibility
-          const savedAvatarUrl = localStorage.getItem('bot:avatarUrl');
-          if (savedAvatarUrl) setBotAvatarUrl(savedAvatarUrl);
-          const savedBotName = localStorage.getItem('bot:name');
-          if (savedBotName) setBotName(savedBotName);
         }
-      } catch (err) {
-        console.error('Error loading bot settings:', err);
-        // Fallback to localStorage
+        return;
+      }
+
+      // Normal flow for current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      // Try to load from database first
+      const { data, error } = await supabase
+        .from('recall_calendar_users')
+        .select('bot_name, bot_avatar_url')
+        .eq('supabase_user_id', user.id)
+        .maybeSingle();
+      
+      if (data) {
+        if (data.bot_name) {
+          setBotName(data.bot_name);
+          localStorage.setItem('bot:name', data.bot_name);
+        }
+        if (data.bot_avatar_url) {
+          setBotAvatarUrl(data.bot_avatar_url);
+          localStorage.setItem('bot:avatarUrl', data.bot_avatar_url);
+        }
+      } else {
+        // Fallback to localStorage for backwards compatibility
         const savedAvatarUrl = localStorage.getItem('bot:avatarUrl');
         if (savedAvatarUrl) setBotAvatarUrl(savedAvatarUrl);
         const savedBotName = localStorage.getItem('bot:name');
         if (savedBotName) setBotName(savedBotName);
       }
-    };
-    
-    loadBotSettings();
-    loadTranscriptBackups();
-  }, []);
-  
-  const loadTranscriptBackups = async () => {
+    } catch (err) {
+      console.error('Error loading bot settings:', err);
+      // Fallback to localStorage
+      const savedAvatarUrl = localStorage.getItem('bot:avatarUrl');
+      if (savedAvatarUrl) setBotAvatarUrl(savedAvatarUrl);
+      const savedBotName = localStorage.getItem('bot:name');
+      if (savedBotName) setBotName(savedBotName);
+    }
+  }, [isAdmin, isImpersonating, impersonatedUserId]);
+
+  const loadTranscriptBackups = useCallback(async () => {
     setIsLoadingBackups(true);
     try {
+      // If admin is impersonating, use edge function to fetch target user's backups
+      if (isAdmin && isImpersonating && impersonatedUserId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          setIsLoadingBackups(false);
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('admin-view-user-data', {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: { 
+            target_user_id: impersonatedUserId, 
+            data_type: 'transcript_backups' 
+          },
+        });
+
+        if (error) {
+          console.error('Error fetching impersonated backups:', error);
+        } else {
+          setTranscriptBackups(data?.transcript_backups || []);
+        }
+        setIsLoadingBackups(false);
+        return;
+      }
+
+      // Normal flow for current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       
@@ -111,7 +167,12 @@ const Settings = () => {
     } finally {
       setIsLoadingBackups(false);
     }
-  };
+  }, [isAdmin, isImpersonating, impersonatedUserId]);
+
+  useEffect(() => {
+    loadBotSettings();
+    loadTranscriptBackups();
+  }, [loadBotSettings, loadTranscriptBackups]);
   
   const downloadBackup = async (fileName: string) => {
     setIsDownloading(fileName);
