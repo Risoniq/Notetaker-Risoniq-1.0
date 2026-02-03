@@ -1,82 +1,75 @@
 
-# Plan: Titel-Bearbeitung für alle Meeting-Ansichten
+# Plan: Dauerhafte Titel-Speicherung beheben
 
-## Übersicht
+## Problem-Analyse
 
-Der Meeting-Titel soll überall bearbeitbar sein, wo er prominent angezeigt wird. Die existierende `EditableTitle` Komponente wird wiederverwendet und für die MeetingDetail-Seite angepasst.
+Die Titel-Änderungen werden zwar in die Datenbank gespeichert, aber folgende Faktoren können dazu führen, dass die Änderung "verloren geht":
 
-## Aktueller Stand
+1. **Race Condition mit Auto-Sync**: Der `useEffect` in `MeetingDetail.tsx` führt alle 30 Sekunden einen Sync durch (Zeile 206-227), der `fetchRecording()` aufruft und das lokale State überschreibt
+2. **Kein React Query Cache**: Die Komponente nutzt direkten `useState` statt React Query, wodurch es keinen automatischen Cache-Invalidierung gibt
+3. **Timing-Problem**: Wenn `fetchRecording()` parallel zum Title-Update läuft, überschreibt der Fetch-Response den gerade gesetzten Titel
 
-| Ort | Bearbeitbar | Status |
-|-----|-------------|--------|
-| RecordingDetailSheet | ✅ Ja | Bereits implementiert |
-| MeetingDetail-Header | ❌ Nein | **Muss erweitert werden** |
-| RecordingCard (Liste) | ❌ Nein | Nicht nötig (Klick öffnet Detail) |
-| TranscriptCard | ❌ Nein | Nicht nötig (Klick öffnet Detail) |
+## Lösung
 
-## Änderungen
+Die `EditableTitle` Komponente muss sicherstellen, dass nach einem erfolgreichen Update **alle Query-Caches invalidiert werden**, sodass nachfolgende Fetches den aktuellen Wert bekommen.
 
-### MeetingDetail.tsx - Header mit EditableTitle
+### Änderung 1: Optimistisches Update mit Rollback in EditableTitle
 
-Die aktuelle statische Titel-Anzeige wird durch die EditableTitle-Komponente ersetzt:
+Die Komponente wird erweitert, um:
+- Den lokalen State sofort zu aktualisieren (optimistisch)
+- Bei Fehler automatisch auf den alten Wert zurückzusetzen
+- Den `onTitleChange` Callback mit dem neuen Wert aufzurufen
 
-**Vorher:**
 ```text
-┌────────────────────────────────────────────────┐
-│ ← Meeting Bot Test 2025-01-15              🟢 │
-│   Freitag, 15. Januar 2025 um 14:30 Uhr       │
-└────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│ 1. User ändert Titel                            │
+│    ↓                                            │
+│ 2. Lokaler State sofort aktualisiert           │
+│    ↓                                            │
+│ 3. Supabase Update im Hintergrund              │
+│    ↓                                            │
+│ 4a. Erfolg → onTitleChange aufrufen            │
+│ 4b. Fehler → Rollback auf alten Wert           │
+└─────────────────────────────────────────────────┘
 ```
 
-**Nachher:**
-```text
-┌────────────────────────────────────────────────────┐
-│ ← Meeting Bot Test 2025-01-15  ✏️           🟢    │
-│   Freitag, 15. Januar 2025 um 14:30 Uhr           │
-└────────────────────────────────────────────────────┘
-       ↑ Hover zeigt Bearbeiten-Symbol
-```
+### Änderung 2: MeetingDetail.tsx - Sync nach Title-Change überspringen
 
-### Anpassung EditableTitle-Komponente
+Im `onTitleChange` Callback wird ein Flag gesetzt, das verhindert, dass der nächste Auto-Sync den Titel überschreibt:
 
-Die bestehende Komponente muss für verschiedene Größen erweitert werden:
+| Problem | Lösung |
+|---------|--------|
+| Auto-Sync überschreibt Titel | Flag `titleJustUpdated` setzen |
+| Race Condition bei Fetch | `fetchRecording` prüft Flag |
 
-| Prop | Typ | Beschreibung |
-|------|-----|--------------|
-| size | "default" \| "large" | Steuert Schriftgröße |
-| onTitleChange | callback | Lokales State-Update |
+### Änderung 3: React Query Integration (optional aber empfohlen)
 
-- `default`: Aktuelle Größe (text-xl) für Sheet
-- `large`: Größere Variante (text-3xl) für MeetingDetail-Header
+Da das Projekt React Query bereits nutzt (`@tanstack/react-query`), wäre die sauberste Lösung, den Recording-Fetch als Query zu implementieren und `queryClient.invalidateQueries()` nach dem Title-Update aufzurufen.
 
-### Lokales State-Update
+## Technische Implementierung
 
-Nach dem Speichern des Titels wird das lokale Recording-State aktualisiert, sodass die Änderung sofort sichtbar ist ohne Neuladen.
+### EditableTitle.tsx
+
+- `handleSave()` aufrufen von `onTitleChange` direkt nach lokaler State-Änderung (optimistisch)
+- Bei Supabase-Fehler: Rollback mit `setEditedTitle(title || '')`
+- Bei Erfolg: Query Cache invalidieren (falls React Query verfügbar)
+
+### MeetingDetail.tsx
+
+- Statt lokalem `setRecording`, die `queryClient.setQueryData()` nutzen
+- Alternativ: `refetchRef` Flag, das nach Title-Update kurzzeitig true ist und verhindert, dass der Auto-Sync den Titel überschreibt
 
 ## Dateien
 
 | Datei | Aktion |
 |-------|--------|
-| `src/components/recordings/EditableTitle.tsx` | Erweitern um `size` Prop |
-| `src/pages/MeetingDetail.tsx` | EditableTitle im Header einbinden |
+| `src/components/recordings/EditableTitle.tsx` | Optimistisches Update + Rollback |
+| `src/pages/MeetingDetail.tsx` | Race Condition mit Auto-Sync beheben |
 
-## Benutzer-Flow
+## Erwartetes Ergebnis
 
-1. Nutzer öffnet Meeting-Detailseite
-2. Hover über Titel zeigt kleines Stift-Symbol
-3. Klick auf Titel oder Symbol aktiviert Bearbeitungsmodus
-4. Eingabefeld erscheint mit aktuellem Titel
-5. Enter speichert, Escape bricht ab
-6. Toast-Nachricht bestätigt Speicherung
-7. Titel wird in Datenbank aktualisiert (RLS: `user_id = auth.uid()`)
-
-## Sicherheit
-
-Die Bearbeitung nutzt Supabase RLS-Policies, die sicherstellen, dass nur der Eigentümer eines Recordings dessen Titel ändern kann:
-
-```sql
--- Existierende Policy
-Policy: Users can update own recordings
-Command: UPDATE
-Using Expression: (auth.uid() = user_id)
-```
+Nach der Änderung:
+1. Titel wird sofort in der UI aktualisiert
+2. Bei Fehler wird der alte Titel wiederhergestellt
+3. Auto-Sync überschreibt den manuell gesetzten Titel nicht mehr
+4. Reload der Seite zeigt den korrekten Titel aus der Datenbank
