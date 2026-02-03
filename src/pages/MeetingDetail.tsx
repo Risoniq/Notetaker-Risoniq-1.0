@@ -59,6 +59,7 @@ export default function MeetingDetail() {
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TimeFilter>('7tage');
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const titleJustUpdatedRef = useRef<boolean>(false);
   
   // Speaker-Suggestions Hook
   const { suggestions: speakerSuggestions, saveSpeakerName } = useSpeakerSuggestions();
@@ -170,6 +171,10 @@ export default function MeetingDetail() {
       // Refetch the recording to get updated data
       const updatedRecording = await fetchRecording();
       if (updatedRecording) {
+        // Preserve local title if it was just updated by user (avoid race condition)
+        if (titleJustUpdatedRef.current && recording?.title !== undefined) {
+          updatedRecording.title = recording.title;
+        }
         setRecording(updatedRecording);
         
         if (forceResync) {
@@ -614,7 +619,15 @@ export default function MeetingDetail() {
               title={recording.title}
               meetingId={recording.meeting_id}
               size="large"
-              onTitleChange={(newTitle) => setRecording(prev => prev ? { ...prev, title: newTitle } : null)}
+              onTitleChange={(newTitle) => {
+                // Set flag to prevent auto-sync from overwriting the title
+                titleJustUpdatedRef.current = true;
+                setRecording(prev => prev ? { ...prev, title: newTitle } : null);
+                // Reset flag after 5 seconds (enough time for any pending sync)
+                setTimeout(() => {
+                  titleJustUpdatedRef.current = false;
+                }, 5000);
+              }}
             />
             <p className="text-muted-foreground mt-1">
               {format(new Date(recording.created_at), "EEEE, dd. MMMM yyyy 'um' HH:mm 'Uhr'", { locale: de })}
