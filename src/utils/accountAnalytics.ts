@@ -29,6 +29,17 @@ export interface WeeklyData {
   minutes: number;
 }
 
+export interface MeetingEffectiveness {
+  assignedTodos: number;      // To-Dos mit Verantwortlichem
+  unassignedTodos: number;    // To-Dos ohne Verantwortlichen
+  followUpMentions: number;   // Follow-Up-Termine erwähnt
+  clearNextSteps: number;     // Klare nächste Schritte
+  totalMeetings: number;      // Anzahl analysierter Meetings
+  assignedPercentage: number; // Prozent der zugeordneten To-Dos
+  followUpPercentage: number; // Prozent der Meetings mit Follow-Up
+  nextStepsPercentage: number; // Prozent der Meetings mit klaren Schritten
+}
+
 export interface AccountAnalytics {
   totalMeetings: number;
   totalDurationMinutes: number;
@@ -42,6 +53,9 @@ export interface AccountAnalytics {
   aggregatedContentBreakdown: ContentBreakdown;
   aggregatedOpenQuestions: OpenQuestion[];
   aggregatedCustomerNeeds: CustomerNeed[];
+  
+  // Meeting-Effektivität
+  meetingEffectiveness: MeetingEffectiveness;
   
   // Zeitliche Daten fuer Charts
   weeklyData: WeeklyData[];
@@ -175,6 +189,9 @@ export const calculateAccountAnalytics = (
     )
     .slice(0, 10);
 
+  // Meeting-Effektivität berechnen
+  const meetingEffectiveness = calculateMeetingEffectiveness(completedRecordings);
+
   // Wöchentliche Daten berechnen
   const weeklyMap: Map<string, { count: number; minutes: number }> = new Map();
   completedRecordings.forEach(recording => {
@@ -204,6 +221,7 @@ export const calculateAccountAnalytics = (
     aggregatedContentBreakdown,
     aggregatedOpenQuestions: uniqueQuestions,
     aggregatedCustomerNeeds: uniqueNeeds,
+    meetingEffectiveness,
     weeklyData,
   };
 };
@@ -218,4 +236,112 @@ export const formatDuration = (minutes: number): string => {
   if (hours === 0) return `${mins}min`;
   if (mins === 0) return `${hours}h`;
   return `${hours}h ${mins}min`;
+};
+
+// Patterns für Verantwortlichkeiten in To-Dos
+const RESPONSIBILITY_PATTERNS = [
+  /^([A-Za-zÀ-ÿ\s]+?):/i,           // "Max Mustermann: ..."
+  /\(([A-Za-zÀ-ÿ\s]+?)\)$/,          // "... (Max Mustermann)"
+  /–\s*([A-Za-zÀ-ÿ\s]+?)$/,          // "... – Max Mustermann"
+  /-\s*([A-Za-zÀ-ÿ\s]+?)$/,          // "... - Max Mustermann"
+  /verantwortlich:\s*([A-Za-zÀ-ÿ\s]+)/i,
+  /zuständig:\s*([A-Za-zÀ-ÿ\s]+)/i,
+  /owner:\s*([A-Za-zÀ-ÿ\s]+)/i,
+  /@([A-Za-zÀ-ÿ\s]+)/,               // "@Max" Mentions
+];
+
+// Patterns für Follow-Up-Termine
+const FOLLOW_UP_PATTERNS = [
+  /follow[\s-]?up/i,
+  /nächstes\s+meeting/i,
+  /nächster\s+termin/i,
+  /folgetermin/i,
+  /wiedersehen\s+am/i,
+  /treffen\s+(uns\s+)?(am|in|nächste)/i,
+  /call\s+(am|in|nächste)/i,
+  /besprechung\s+(am|in|nächste)/i,
+];
+
+// Patterns für klare nächste Schritte
+const NEXT_STEPS_PATTERNS = [
+  /nächster?\s+schritt/i,
+  /next\s+step/i,
+  /als\s+nächstes/i,
+  /dann\s+werden\s+wir/i,
+  /werden\s+wir\s+(dann\s+)?/i,
+  /im\s+anschluss/i,
+  /danach\s+(werden|machen|erstellen)/i,
+  /bis\s+(zum|zur|nächste)/i,
+  /deadline/i,
+  /frist/i,
+];
+
+/**
+ * Prüft ob ein To-Do einen zugewiesenen Verantwortlichen hat
+ */
+const hasAssignedResponsibility = (actionItem: string): boolean => {
+  return RESPONSIBILITY_PATTERNS.some(pattern => pattern.test(actionItem));
+};
+
+/**
+ * Prüft ob ein Transkript Follow-Up-Termine erwähnt
+ */
+const hasFollowUpMention = (transcript: string | null): boolean => {
+  if (!transcript) return false;
+  return FOLLOW_UP_PATTERNS.some(pattern => pattern.test(transcript));
+};
+
+/**
+ * Prüft ob ein Transkript klare nächste Schritte enthält
+ */
+const hasClearNextSteps = (transcript: string | null): boolean => {
+  if (!transcript) return false;
+  return NEXT_STEPS_PATTERNS.some(pattern => pattern.test(transcript));
+};
+
+/**
+ * Berechnet die Meeting-Effektivitäts-Metriken
+ */
+const calculateMeetingEffectiveness = (recordings: Recording[]): MeetingEffectiveness => {
+  let assignedTodos = 0;
+  let unassignedTodos = 0;
+  let followUpMentions = 0;
+  let clearNextSteps = 0;
+  
+  recordings.forEach(recording => {
+    // To-Dos analysieren
+    if (recording.action_items && Array.isArray(recording.action_items)) {
+      recording.action_items.forEach((item: string) => {
+        if (hasAssignedResponsibility(item)) {
+          assignedTodos++;
+        } else {
+          unassignedTodos++;
+        }
+      });
+    }
+    
+    // Follow-Up-Termine prüfen
+    if (hasFollowUpMention(recording.transcript_text)) {
+      followUpMentions++;
+    }
+    
+    // Klare nächste Schritte prüfen
+    if (hasClearNextSteps(recording.transcript_text)) {
+      clearNextSteps++;
+    }
+  });
+  
+  const totalTodos = assignedTodos + unassignedTodos;
+  const totalMeetings = recordings.length;
+  
+  return {
+    assignedTodos,
+    unassignedTodos,
+    followUpMentions,
+    clearNextSteps,
+    totalMeetings,
+    assignedPercentage: totalTodos > 0 ? Math.round((assignedTodos / totalTodos) * 100) : 0,
+    followUpPercentage: totalMeetings > 0 ? Math.round((followUpMentions / totalMeetings) * 100) : 0,
+    nextStepsPercentage: totalMeetings > 0 ? Math.round((clearNextSteps / totalMeetings) * 100) : 0,
+  };
 };

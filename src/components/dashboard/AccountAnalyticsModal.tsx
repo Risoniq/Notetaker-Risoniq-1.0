@@ -1,6 +1,6 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { Users, Clock, CheckSquare, Lightbulb, MessageCircleQuestion, HeartHandshake, TrendingUp } from "lucide-react";
+import { Users, Clock, CheckSquare, Lightbulb, MessageCircleQuestion, HeartHandshake, TrendingUp, Target } from "lucide-react";
 import { formatDuration, type AccountAnalytics } from "@/utils/accountAnalytics";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MeetingChatWidget } from "./MeetingChatWidget";
@@ -37,6 +37,23 @@ export const AccountAnalyticsModal = ({
     value: analytics.aggregatedContentBreakdown.smallTalk,
     color: "hsl(45, 80%, 55%)"
   }];
+
+  // Meeting-Effektivität Chart: Gewichteter Score aus 3 Faktoren
+  const eff = analytics.meetingEffectiveness;
+  const effectivenessScore = Math.round(
+    (eff.assignedPercentage * 0.4) + 
+    (eff.followUpPercentage * 0.3) + 
+    (eff.nextStepsPercentage * 0.3)
+  );
+  const effectivenessChartData = [{
+    name: "Effektiv",
+    value: effectivenessScore,
+    color: "hsl(150, 70%, 50%)"
+  }, {
+    name: "Potential",
+    value: 100 - effectivenessScore,
+    color: "hsl(0, 0%, 85%)"
+  }];
   return <Sheet open={open} onOpenChange={isOpen => !isOpen && onClose()}>
       <SheetContent side="right" className="w-full sm:max-w-2xl overflow-hidden p-0">
         <SheetHeader className="px-6 py-4 border-b">
@@ -56,50 +73,81 @@ export const AccountAnalyticsModal = ({
               <StatCard icon={<MessageCircleQuestion className="h-5 w-5" />} value={analytics.aggregatedOpenQuestions.length} label="Offene Fragen" />
             </div>
 
-            {/* Pie Charts */}
-            <div className="grid grid-cols-2 gap-6">
+            {/* Pie Charts - 3er Grid */}
+            <div className="grid grid-cols-3 gap-4">
               {/* Sprechanteile: Eigener Account vs. Andere */}
               <div className="bg-muted/30 rounded-xl p-4">
-                <h3 className="font-medium mb-3">Sprechanteile</h3>
-                <div className="h-40">
+                <h3 className="font-medium mb-2 text-sm">Sprechanteile</h3>
+                <div className="h-32">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={speakerChartData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={2} dataKey="value">
+                      <Pie data={speakerChartData} cx="50%" cy="50%" innerRadius={30} outerRadius={50} paddingAngle={2} dataKey="value">
                         {speakerChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex justify-center gap-4 mt-2">
-                  {speakerChartData.map((s, i) => <div key={i} className="flex items-center gap-2 text-sm">
-                      <div className="w-3 h-3 rounded-full" style={{
+                <div className="flex flex-col gap-1 mt-1">
+                  {speakerChartData.map((s, i) => <div key={i} className="flex items-center gap-2 text-xs">
+                      <div className="w-2 h-2 rounded-full" style={{
                     backgroundColor: s.color
                   }} />
-                      <span>{s.name} {s.value}%</span>
+                      <span className="truncate">{s.name} {s.value}%</span>
                     </div>)}
                 </div>
               </div>
 
               {/* Business vs Small Talk */}
               <div className="bg-muted/30 rounded-xl p-4">
-                <h3 className="font-medium mb-3">Business vs. Small Talk</h3>
-                <div className="h-40">
+                <h3 className="font-medium mb-2 text-sm">Business/Small Talk</h3>
+                <div className="h-32">
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
-                      <Pie data={contentChartData} cx="50%" cy="50%" innerRadius={40} outerRadius={65} paddingAngle={2} dataKey="value">
+                      <Pie data={contentChartData} cx="50%" cy="50%" innerRadius={30} outerRadius={50} paddingAngle={2} dataKey="value">
                         {contentChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
                       </Pie>
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
-                <div className="flex justify-center gap-4 mt-2">
-                  <div className="flex items-center gap-2 text-sm">
-                    <div className="w-3 h-3 rounded-full bg-[hsl(210,80%,55%)]" />
+                <div className="flex flex-col gap-1 mt-1">
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-[hsl(210,80%,55%)]" />
                     <span>Business {analytics.aggregatedContentBreakdown.business}%</span>
                   </div>
-                  <div className="flex items-center gap-2 text-sm">
-                    <div className="w-3 h-3 rounded-full bg-[hsl(45,80%,55%)]" />
+                  <div className="flex items-center gap-2 text-xs">
+                    <div className="w-2 h-2 rounded-full bg-[hsl(45,80%,55%)]" />
                     <span>Small Talk {analytics.aggregatedContentBreakdown.smallTalk}%</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Meeting-Effektivität */}
+              <div className="bg-muted/30 rounded-xl p-4">
+                <h3 className="font-medium mb-2 text-sm flex items-center gap-1">
+                  <Target className="h-3 w-3 text-primary" />
+                  Effektivität
+                </h3>
+                <div className="h-32">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={effectivenessChartData} cx="50%" cy="50%" innerRadius={30} outerRadius={50} paddingAngle={0} dataKey="value" startAngle={90} endAngle={-270}>
+                        {effectivenessChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                      </Pie>
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-col gap-1 mt-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">To-Dos zugeordnet</span>
+                    <span className="font-medium">{eff.assignedPercentage}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Follow-Ups</span>
+                    <span className="font-medium">{eff.followUpPercentage}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Nächste Schritte</span>
+                    <span className="font-medium">{eff.nextStepsPercentage}%</span>
                   </div>
                 </div>
               </div>
