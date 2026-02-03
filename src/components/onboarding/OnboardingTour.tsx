@@ -191,7 +191,7 @@ export function OnboardingTour() {
       {/* Tooltip Card */}
       <div
         ref={tooltipRef}
-        className="absolute z-10 w-[360px] max-w-[calc(100vw-40px)] transition-all duration-300 ease-out"
+        className="absolute z-10 w-[360px] max-w-[calc(100vw-40px)] transition-all duration-300 ease-out pointer-events-auto"
         style={{
           top: tooltipPosition.top,
           left: tooltipPosition.left,
