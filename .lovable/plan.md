@@ -1,75 +1,112 @@
 
-# Plan: Onboarding-Tour Klick-Bug beheben
+# Plan: Race Condition bei Transkript-Analyse beheben
 
-## Problem
+## Problem identifiziert
 
-Beim Klicken auf den "Weiter"-Button in der Onboarding-Tour passiert nichts. Das Problem liegt in der CSS-Struktur der Komponente:
+Die Logs zeigen eindeutig das Problem:
 
-1. Das Backdrop-Element mit `pointer-events-auto` blockiert alle Maus-Events
-2. Das Tooltip-Div liegt zwar visuell darüber (z-10), aber beide sind im gleichen Stacking-Kontext
-3. Das SVG-Element für das Spotlight-Mask hat ebenfalls keine explizite z-index-Trennung
-
-## Analyse der Struktur
-
-```text
-┌─ fixed inset-0 z-[9999] ─────────────────────────────────────┐
-│                                                               │
-│  ┌─ Backdrop (pointer-events-auto) ─────────────────────────┐│
-│  │  SVG mit Spotlight-Maske (keine pointer-events)          ││
-│  │  Spotlight-Glow (pointer-events-none)                    ││
-│  └──────────────────────────────────────────────────────────┘│
-│                                                               │
-│  ┌─ Tooltip (z-10, keine pointer-events Definition) ────────┐│
-│  │  GlassCard mit Buttons                                   ││
-│  └──────────────────────────────────────────────────────────┘│
-│                                                               │
-└───────────────────────────────────────────────────────────────┘
+```
+12:51:21Z INFO No transcript available for analysis
+12:51:21Z INFO No transcript available for analysis
+12:51:21Z INFO No transcript available for analysis
+12:51:37Z INFO Transcript length: 41724 characters  ← Erst später funktioniert es
+12:51:40Z INFO Analysis saved successfully
 ```
 
-Das Problem: Das Backdrop hat `pointer-events-auto` und bedeckt die gesamte Fläche. Das Tooltip hat zwar `z-10`, aber **keinen expliziten `pointer-events-auto`**, während das Backdrop-Element die Events abfängt.
+**Ursache**: In `sync-recording/index.ts` wird die Analyse-Funktion (Zeile 625-647) aufgerufen, **bevor** das Transkript in der Datenbank gespeichert wird (Zeile 724-728).
+
+Die `analyze-transcript` Funktion liest das Transkript aus der Datenbank:
+```typescript
+const { data: recording } = await supabase
+  .from('recordings')
+  .select('transcript_text, ...')
+  .eq('id', recording_id)
+  .single();
+```
+
+Aber `transcript_text` steht noch in `updates` und wurde noch nicht mit `.update(updates)` gespeichert!
+
+## Ablauf aktuell (fehlerhaft)
+
+```text
+1. sync-recording lädt Transkript von Recall.ai
+2. Transkript wird in 'updates.transcript_text' gespeichert (nur im Speicher!)
+3. → analyze-transcript wird aufgerufen
+4. → analyze-transcript liest DB → transcript_text ist NULL → FEHLER!
+5. Erst danach: DB wird aktualisiert mit updates
+```
 
 ## Lösung
 
-Das Tooltip-Container-Div benötigt `pointer-events-auto`, damit Klicks auf die Buttons funktionieren:
+Die Datenbank muss **vor** dem Analyse-Aufruf aktualisiert werden.
 
-### Datei: `src/components/onboarding/OnboardingTour.tsx`
+### Datei: `supabase/functions/sync-recording/index.ts`
 
-**Zeile 192-198** - Tooltip-Container anpassen:
+**Änderung**: Den Datenbank-Update-Block (Zeilen 724-736) **vor** den Analyse-Aufruf (Zeilen 625-647) verschieben.
 
-Aktuell:
-```tsx
-<div
-  ref={tooltipRef}
-  className="absolute z-10 w-[360px] max-w-[calc(100vw-40px)] transition-all duration-300 ease-out"
-  style={{...}}
->
+Neuer Ablauf:
+```text
+1. sync-recording lädt Transkript von Recall.ai
+2. Transkript wird in 'updates.transcript_text' gespeichert
+3. → DB wird aktualisiert mit updates (transcript_text ist jetzt in DB!)
+4. → analyze-transcript wird aufgerufen
+5. → analyze-transcript liest DB → transcript_text ist vorhanden → ERFOLG!
 ```
 
-Änderung:
-```tsx
-<div
-  ref={tooltipRef}
-  className="absolute z-10 w-[360px] max-w-[calc(100vw-40px)] transition-all duration-300 ease-out pointer-events-auto"
-  style={{...}}
->
+## Konkrete Änderungen
+
+Aktueller Code-Ablauf (vereinfacht):
+```typescript
+// Zeile 625-647: Analyse starten (ZU FRÜH!)
+if (status === 'done' && hasTranscript && ...) {
+  await fetch('analyze-transcript', { recording_id: id })
+}
+
+// Zeile 649-722: Export an externe API
+
+// Zeile 724-736: DB aktualisieren (ZU SPÄT!)
+await supabase.from('recordings').update(updates).eq('id', id)
+```
+
+Neuer Code-Ablauf:
+```typescript
+// ZUERST: DB aktualisieren
+const { error: updateError } = await supabase
+  .from('recordings')
+  .update(updates)
+  .eq('id', id)
+
+if (updateError) { ... return error ... }
+
+// DANN: Analyse starten (jetzt ist transcript_text in der DB!)
+if (status === 'done' && hasTranscript && (updates.transcript_text || force_resync)) {
+  await fetch('analyze-transcript', { recording_id: id })
+}
+
+// DANN: Export an externe API
+if (status === 'done' && ...) {
+  // Export-Logik
+}
 ```
 
 ## Betroffene Datei
 
 | Datei | Aktion |
 |-------|--------|
-| `src/components/onboarding/OnboardingTour.tsx` | `pointer-events-auto` zum Tooltip-Container hinzufügen |
+| `supabase/functions/sync-recording/index.ts` | Reihenfolge: DB-Update vor Analyse-Aufruf |
 
-## Technische Details
+## Warum das Admin-Neuladen funktioniert
 
-Die CSS-Eigenschaft `pointer-events` steuert, ob ein Element Maus-Events empfangen kann:
-- `pointer-events-auto`: Element empfängt Maus-Events (Standard für die meisten Elemente, aber nicht in Overlay-Situationen)
-- `pointer-events-none`: Element ignoriert Maus-Events (Events gehen an das Element darunter)
+Wenn du als Admin manuell "Transkript neu laden" klickst:
+1. Das erste Sync speichert `transcript_text` in der DB (aber Analyse schlägt fehl)
+2. Beim zweiten Sync (`force_resync=true`) ist `transcript_text` bereits in `recording.transcript_text` (aus der DB)
+3. Die Analyse findet das Transkript und funktioniert
 
-In einem Overlay wie diesem mit `position: fixed` und überlappenden Elementen muss das interaktive Element explizit `pointer-events-auto` haben, um sicherzustellen, dass es Klicks erhält.
+Das erklärt, warum es beim zweiten Mal klappt!
 
-## Ergebnis
+## Ergebnis nach der Änderung
 
-- Klicks auf "Weiter", "Zurück", "Überspringen" und "X" funktionieren wieder
-- Das Backdrop blockiert weiterhin Klicks auf die Seite dahinter
-- Der Spotlight-Bereich bleibt weiterhin klickbar (falls gewünscht)
+- Transkripte werden beim ersten Sync korrekt analysiert
+- Keine manuellen Admin-Eingriffe mehr nötig
+- Die Analyse-Ergebnisse erscheinen sofort im Dashboard
+- Der bestehende "Transkript neu laden" Button funktioniert weiterhin als Backup
