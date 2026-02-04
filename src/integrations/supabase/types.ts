@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_keys: {
+        Row: {
+          created_at: string
+          created_by: string
+          expires_at: string | null
+          id: string
+          is_active: boolean
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+          name: string
+          permissions: Json
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+          name: string
+          permissions?: Json
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+          name?: string
+          permissions?: Json
+        }
+        Relationships: []
+      }
       recall_calendar_users: {
         Row: {
           bot_avatar_url: string | null
@@ -273,6 +312,62 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      webhook_configs: {
+        Row: {
+          api_key_id: string
+          created_at: string
+          frequency: string
+          id: string
+          is_active: boolean
+          last_triggered: string | null
+          name: string
+          report_type: string
+          schedule_day: number | null
+          schedule_time: string | null
+          threshold_type: string | null
+          threshold_value: number | null
+          webhook_url: string
+        }
+        Insert: {
+          api_key_id: string
+          created_at?: string
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          last_triggered?: string | null
+          name: string
+          report_type?: string
+          schedule_day?: number | null
+          schedule_time?: string | null
+          threshold_type?: string | null
+          threshold_value?: number | null
+          webhook_url: string
+        }
+        Update: {
+          api_key_id?: string
+          created_at?: string
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          last_triggered?: string | null
+          name?: string
+          report_type?: string
+          schedule_day?: number | null
+          schedule_time?: string | null
+          threshold_type?: string | null
+          threshold_value?: number | null
+          webhook_url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "webhook_configs_api_key_id_fkey"
+            columns: ["api_key_id"]
+            isOneToOne: false
+            referencedRelation: "api_keys"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
