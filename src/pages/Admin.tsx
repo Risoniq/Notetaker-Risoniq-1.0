@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye, Plus, UsersRound } from 'lucide-react';
+import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye, Plus, UsersRound, Key } from 'lucide-react';
 import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 import { useImpersonation } from '@/contexts/ImpersonationContext';
 import { AdminCreateMeetingDialog } from '@/components/admin/AdminCreateMeetingDialog';
 import { TeamCard, type TeamData } from '@/components/admin/TeamCard';
 import { TeamDialog } from '@/components/admin/TeamDialog';
 import { TeamMembersDialog } from '@/components/admin/TeamMembersDialog';
+import { ApiKeyCard, type ApiKeyData } from '@/components/admin/ApiKeyCard';
+import { CreateApiKeyDialog } from '@/components/admin/CreateApiKeyDialog';
+import { WebhookConfigDialog } from '@/components/admin/WebhookConfigDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -96,6 +99,7 @@ const Admin = () => {
   const { startImpersonating } = useImpersonation();
   const [users, setUsers] = useState<UserData[]>([]);
   const [teams, setTeams] = useState<TeamData[]>([]);
+  const [apiKeys, setApiKeys] = useState<ApiKeyData[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -114,6 +118,11 @@ const Admin = () => {
   const [editingTeam, setEditingTeam] = useState<TeamData | null>(null);
   const [teamMembersDialogOpen, setTeamMembersDialogOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<TeamData | null>(null);
+
+  // API Key Dialogs
+  const [createApiKeyDialogOpen, setCreateApiKeyDialogOpen] = useState(false);
+  const [webhookDialogOpen, setWebhookDialogOpen] = useState(false);
+  const [selectedApiKey, setSelectedApiKey] = useState<ApiKeyData | null>(null);
 
   const handleViewAsUser = (user: UserData) => {
     startImpersonating(user.id, user.email);
@@ -500,6 +509,147 @@ const Admin = () => {
     setTeamMembersDialogOpen(true);
   };
 
+  // API Key Handlers
+  const fetchApiKeys = async () => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-list-api-keys', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+        })
+      );
+
+      if (response.error) throw new Error(response.error.message);
+      setApiKeys(response.data.api_keys || []);
+    } catch (err: any) {
+      console.error('Error fetching API keys:', err);
+    }
+  };
+
+  const handleCreateApiKey = async (data: { name: string; permissions: any; expires_at: string | null }) => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return null;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-create-api-key', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: data,
+        })
+      );
+
+      if (response.error) throw new Error(response.error.message);
+
+      toast({
+        title: 'API-Key erstellt',
+        description: 'Kopiere den Key jetzt – er wird nur einmal angezeigt!',
+      });
+
+      await fetchApiKeys();
+      return { api_key: response.data.api_key };
+    } catch (err: any) {
+      toast({
+        title: 'Fehler',
+        description: err.message || 'API-Key konnte nicht erstellt werden',
+        variant: 'destructive',
+      });
+      return null;
+    }
+  };
+
+  const handleDeleteApiKey = async (keyId: string) => {
+    setActionLoading(keyId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-delete-api-key', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: { key_id: keyId },
+        })
+      );
+
+      if (response.error) throw new Error(response.error.message);
+
+      toast({
+        title: 'API-Key gelöscht',
+        description: 'Der API-Key wurde erfolgreich gelöscht.',
+      });
+
+      await fetchApiKeys();
+    } catch (err: any) {
+      toast({
+        title: 'Fehler',
+        description: err.message || 'Löschen fehlgeschlagen',
+        variant: 'destructive',
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleWebhookAction = async (action: string, data: any): Promise<boolean> => {
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return false;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-save-webhook-config', {
+          headers: {
+            Authorization: `Bearer ${sessionData.session.access_token}`,
+          },
+          body: { action, ...data },
+        })
+      );
+
+      if (response.error) throw new Error(response.error.message);
+
+      if (action === 'test') {
+        if (response.data.success) {
+          toast({ title: 'Test erfolgreich', description: 'Webhook wurde gesendet.' });
+        } else {
+          toast({ title: 'Test fehlgeschlagen', description: response.data.error, variant: 'destructive' });
+        }
+        return response.data.success;
+      }
+
+      toast({
+        title: action === 'delete' ? 'Webhook gelöscht' : 'Webhook gespeichert',
+      });
+
+      await fetchApiKeys();
+      return true;
+    } catch (err: any) {
+      toast({
+        title: 'Fehler',
+        description: err.message || 'Aktion fehlgeschlagen',
+        variant: 'destructive',
+      });
+      return false;
+    }
+  };
+
+  const openWebhookConfig = (apiKey: ApiKeyData) => {
+    setSelectedApiKey(apiKey);
+    setWebhookDialogOpen(true);
+  };
+
+  // Fetch API keys when tab changes to api-keys
+  useEffect(() => {
+    if (activeTab === 'api-keys') {
+      fetchApiKeys();
+    }
+  }, [activeTab]);
+
   const formatDate = (dateString: string | null) => {
     if (!dateString) return '–';
     return new Date(dateString).toLocaleDateString('de-DE', {
@@ -635,7 +785,7 @@ const Admin = () => {
           </Card>
         </div>
 
-        {/* Tabs for Users and Teams */}
+        {/* Tabs for Users, Teams, and API-Keys */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
           <div className="flex items-center justify-between mb-4">
             <TabsList>
@@ -647,11 +797,21 @@ const Admin = () => {
                 <UsersRound className="h-4 w-4" />
                 Teams
               </TabsTrigger>
+              <TabsTrigger value="api-keys" className="flex items-center gap-2">
+                <Key className="h-4 w-4" />
+                API-Keys
+              </TabsTrigger>
             </TabsList>
             {activeTab === 'teams' && (
               <Button onClick={() => { setEditingTeam(null); setTeamDialogOpen(true); }}>
                 <Plus className="h-4 w-4 mr-2" />
                 Team erstellen
+              </Button>
+            )}
+            {activeTab === 'api-keys' && (
+              <Button onClick={() => setCreateApiKeyDialogOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                API-Key erstellen
               </Button>
             )}
           </div>
@@ -893,6 +1053,89 @@ const Admin = () => {
               </div>
             )}
           </TabsContent>
+
+          {/* API-Keys Tab */}
+          <TabsContent value="api-keys">
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3].map((i) => (
+                  <Skeleton key={i} className="h-48 w-full" />
+                ))}
+              </div>
+            ) : apiKeys.length === 0 ? (
+              <Card className="p-8 text-center">
+                <Key className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Noch keine API-Keys</h3>
+                <p className="text-muted-foreground mb-4">
+                  Erstelle einen API-Key, um Dashboard-Daten extern abzurufen oder automatische Reports zu konfigurieren.
+                </p>
+                <Button onClick={() => setCreateApiKeyDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Ersten API-Key erstellen
+                </Button>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {apiKeys.map((apiKey) => (
+                    <ApiKeyCard
+                      key={apiKey.id}
+                      apiKey={apiKey}
+                      onDelete={handleDeleteApiKey}
+                      onConfigureWebhook={openWebhookConfig}
+                      isDeleting={actionLoading === apiKey.id}
+                    />
+                  ))}
+                </div>
+
+                {/* API Documentation */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">API-Dokumentation</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="bg-muted/50 rounded-md p-4 font-mono text-sm">
+                      <p className="text-muted-foreground mb-2">Base-URL:</p>
+                      <code>https://kltxpsrghuxzfbctkdnz.supabase.co/functions/v1</code>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <h4 className="font-semibold">Dashboard-Daten</h4>
+                        <code className="text-xs bg-muted px-2 py-1 rounded">GET /api-dashboard</code>
+                        <p className="text-xs text-muted-foreground">
+                          Parameter: include_users, include_teams, include_summary
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="font-semibold">Transkripte</h4>
+                        <code className="text-xs bg-muted px-2 py-1 rounded">GET /api-transcripts</code>
+                        <p className="text-xs text-muted-foreground">
+                          Parameter: since, user_id, team_id, limit, include_analysis
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <h4 className="font-semibold">Team-Statistiken</h4>
+                        <code className="text-xs bg-muted px-2 py-1 rounded">GET /api-team-stats</code>
+                        <p className="text-xs text-muted-foreground">
+                          Parameter: team_id
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-muted/50 rounded-md p-4">
+                      <p className="text-sm font-medium mb-2">Beispiel-Aufruf:</p>
+                      <pre className="text-xs overflow-x-auto">
+{`curl -X GET \\
+  -H "x-api-key: ntr_DEIN_API_KEY" \\
+  "https://kltxpsrghuxzfbctkdnz.supabase.co/functions/v1/api-dashboard?include_summary=true"`}
+                      </pre>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
 
         {/* Quota Edit Dialog */}
@@ -973,6 +1216,26 @@ const Admin = () => {
           onOpenChange={setCreateMeetingOpen}
           users={users.map(u => ({ id: u.id, email: u.email }))}
           onSuccess={fetchData}
+        />
+
+        {/* Create API Key Dialog */}
+        <CreateApiKeyDialog
+          open={createApiKeyDialogOpen}
+          onOpenChange={setCreateApiKeyDialogOpen}
+          onCreateKey={handleCreateApiKey}
+          isCreating={actionLoading === 'create-api-key'}
+        />
+
+        {/* Webhook Config Dialog */}
+        <WebhookConfigDialog
+          open={webhookDialogOpen}
+          onOpenChange={(open) => {
+            setWebhookDialogOpen(open);
+            if (!open) setSelectedApiKey(null);
+          }}
+          apiKey={selectedApiKey}
+          onSave={handleWebhookAction}
+          isSaving={!!actionLoading}
         />
       </div>
     </div>

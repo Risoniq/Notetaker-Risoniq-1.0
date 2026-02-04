@@ -71,3 +71,24 @@ verify_jwt = false
 
 [functions.admin-create-meeting]
 verify_jwt = false
+
+[functions.admin-create-api-key]
+verify_jwt = false
+
+[functions.admin-list-api-keys]
+verify_jwt = false
+
+[functions.admin-delete-api-key]
+verify_jwt = false
+
+[functions.admin-save-webhook-config]
+verify_jwt = false
+
+[functions.api-dashboard]
+verify_jwt = false
+
+[functions.api-transcripts]
+verify_jwt = false
+
+[functions.api-team-stats]
+verify_jwt = false
