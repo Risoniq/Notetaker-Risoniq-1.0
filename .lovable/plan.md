@@ -1,163 +1,212 @@
 
-# Plan: Verbesserung der Sprechererkennung und Teilnehmerzaehlung
 
-## Analyse der Probleme
+# Plan: Konsistente Sprechererkennung und Teilnehmerzaehlung
 
-### Problem 1: Teilnehmer-Daten fehlen komplett
-Die Datenbank zeigt `participants: null` und `calendar_attendees: null`. Das bedeutet:
-- Recall.ai hat entweder keine Teilnehmerdaten geliefert
-- Oder die Speicherlogik hat nicht gegriffen
+## Problem-Analyse
 
-### Problem 2: Namen-Inkonsistenzen
-Im Transkript erscheinen:
-- `Goerge, Maren (M.)` - "oe" statt "ö" (Recall.ai Transkriptions-Artefakt)
-- `Beier-Nies, Katja (K.)` - korrekt aus Recall.ai, aber sie stellt sich als "Katja Bayer Nies" vor
+Aktuell gibt es **Inkonsistenzen** zwischen der Teilnehmerzaehlung an verschiedenen Stellen:
 
-### Problem 3: Kurze Einwuerfe werden nicht zusammengefuehrt
-Die aktuelle Merge-Logik kann nur aufeinanderfolgende Segmente desselben Sprechers zusammenfuehren. Wenn Fabian mit "Ihnen" Katja unterbricht, sind das zwei verschiedene Sprecher - hier kann nicht automatisch zusammengefuehrt werden.
+### 1. MeetingDetail.tsx (Zeile 569-608)
+- Berechnet `participantCount` mit **eigener Logik**
+- Hat eine lokale `isBot()` Funktion
+- Hat eine lokale `extractParticipants()` Funktion
+- Nutzt NICHT die zentrale `participantUtils.ts`
 
-## Loesungsansatz
+### 2. RecordingCard.tsx
+- Zeigt **keine** Teilnehmerzahl an
+- Keine Integration mit participantUtils
 
-### Schritt 1: Teilnehmer aus Transkript extrahieren (Frontend-Fix)
+### 3. deepDiveAnalysis.ts (Zeile 116-157)
+- Hat eine **eigene** Sprecher-Extraktionslogik in `analyzeSpeakerShares()`
+- Filtert Metadaten-Felder korrekt
+- Aber nutzt nicht die zentrale Utils
 
-Da `participants` null ist, muss das Frontend die Sprecher direkt aus dem Transkript-Text extrahieren. Die Funktion `extractSpeakersInOrder` in `speakerColors.ts` macht das bereits, aber sie wird nicht fuer die Teilnehmerzaehlung verwendet.
+### 4. participantUtils.ts
+- Hat zentrale Funktionen: `isBot()`, `getParticipantCountWithFallback()`, `extractParticipantsFromTranscript()`
+- Wird aber **nicht ueberall genutzt**
 
-**Aenderung:** Fallback-Logik fuer Teilnehmerzaehlung, wenn `participants` null ist.
+## Loesung: Zentralisierung der Sprecherlogik
 
-### Schritt 2: Backend-Verbesserung fuer Teilnehmer-Extraktion
+### Schritt 1: participantUtils.ts erweitern
 
-Die `sync-recording` Function soll:
-1. Wenn `meeting_participants` leer ist: Sprecher aus dem Transkript extrahieren
-2. Diese als `participants` speichern
-3. Bot-Filter anwenden (notetaker, bot, etc.)
+Neue Funktionen hinzufuegen:
 
-### Schritt 3: Namen-Normalisierung
-
-Einfuehrung einer Normalisierungsfunktion die:
-- "oe", "ae", "ue" zu "ö", "ä", "ü" konvertiert (optional/heuristisch)
-- Nachnamen-Vorname-Format erkennt: "Goerge, Maren (M.)" -> "Maren Görge"
-- Duplikate vermeidet (gleicher Sprecher mit leicht unterschiedlichem Namen)
-
-### Schritt 4: Intelligentere Einwurf-Behandlung (optional)
-
-Kurze Einwuerfe (unter 3 Woerter) von anderen Sprechern koennten:
-- Visuell anders dargestellt werden (kleinere Schrift, inline)
-- Oder als "Zwischenruf" markiert werden
-
-## Technische Umsetzung
-
-### Datei 1: src/utils/participantUtils.ts
-
-Neue Funktionen:
 ```text
-extractParticipantsFromTranscript(transcriptText: string): Participant[]
-  - Nutzt extractSpeakersInOrder aus speakerColors.ts
-  - Filtert Bots heraus
-  - Gibt echte Teilnehmer zurueck
+1. isMetadataField(name: string): boolean
+   - Prueft ob ein "Sprecher" eigentlich ein Metadaten-Header ist
+   - z.B. "User-ID", "User-Email", "Recording-ID", "Erstellt"
 
-normalizeGermanName(name: string): string
-  - "Goerge" -> "Görge"
-  - "Baier" -> "Baier" (keine Aenderung, da korrekt)
-  - "Nachname, Vorname (X.)" -> "Vorname Nachname"
+2. extractSpeakersWithStats(transcript: string): SpeakerStats[]
+   - Extrahiert alle Sprecher MIT Wortanzahl und Vorkommen
+   - Filtert Bots und Metadaten automatisch
+   - Gibt konsistente Daten fuer Dashboard und Detail
+
+3. getConsistentParticipantCount(recording: Recording): { count: number; names: string[] }
+   - Single Source of Truth fuer Teilnehmerzaehlung
+   - Nutzt DB-Teilnehmer falls vorhanden
+   - Fallback auf Transkript-Extraktion
+   - Immer konsistentes Ergebnis
 ```
 
-### Datei 2: supabase/functions/sync-recording/index.ts
+### Schritt 2: MeetingDetail.tsx refaktorieren
 
-Aenderungen:
+Ersetze die lokale Logik (Zeilen 541-608) durch zentrale Utils:
+
 ```text
-// Nach Transkript-Parsing:
-if (participantsList.length === 0) {
-  // Fallback: Extrahiere Sprecher aus dem formatierten Transkript
-  const speakers = new Set<string>()
-  mergedSegments.forEach(seg => {
-    if (!isBot(seg.speaker)) {
-      speakers.add(seg.speaker)
-    }
-  })
+VORHER (lokal):
+  const extractParticipants = (transcript) => { ... }
+  const isBot = (name) => { ... }
+  let participantCount = 0;
+  // ... 60 Zeilen lokale Berechnung
+
+NACHHER (zentral):
+  import { getConsistentParticipantCount } from '@/utils/participantUtils';
   
-  participantsList = Array.from(speakers).map((name, idx) => ({
-    id: String(idx),
-    name: name
-  }))
-}
+  const { count: participantCount, names: participantNames } = 
+    getConsistentParticipantCount(recording);
 ```
 
-### Datei 3: Frontend - MeetingDetail.tsx oder RecordingCard.tsx
+### Schritt 3: deepDiveAnalysis.ts integrieren
 
-Fallback fuer Teilnehmerzaehlung:
+Die `analyzeSpeakerShares()` Funktion soll:
+- `extractSpeakersWithStats()` aus participantUtils nutzen
+- Konsistente Bot/Metadaten-Filterung anwenden
+
+### Schritt 4: Metadaten-Header Filter verbessern
+
+Das Backend fuegt einen Header hinzu:
 ```text
-const getParticipantCount = () => {
-  // Prioritaet 1: participants aus DB
-  if (recording.participants?.length > 0) {
-    return countRealParticipants(recording.participants)
-  }
-  
-  // Prioritaet 2: Aus Transkript extrahieren
-  if (recording.transcript_text) {
-    const speakers = extractSpeakersInOrder(recording.transcript_text)
-    return speakers.filter(s => !isBot(s)).length
-  }
-  
-  return 0
-}
+[Meeting-Info]
+User-ID: xxx
+User-Email: xxx
+Recording-ID: xxx
+Erstellt: xxx
+---
 ```
+
+Die Sprechererkennung muss diesen Header **vor** der Analyse entfernen.
+
+### Schritt 5: RecordingCard Teilnehmeranzeige (optional)
+
+Falls gewuenscht: Teilnehmeranzahl auch in der Kartenuebersicht anzeigen.
 
 ## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/utils/participantUtils.ts` | Neue Funktionen: extractParticipantsFromTranscript, normalizeGermanName |
-| `supabase/functions/sync-recording/index.ts` | Fallback-Extraktion wenn participants leer |
-| `src/pages/MeetingDetail.tsx` | Fallback-Teilnehmerzaehlung aus Transkript |
-| `src/components/recordings/RecordingCard.tsx` | Gleiche Fallback-Logik |
+| `src/utils/participantUtils.ts` | Neue Funktionen: `isMetadataField`, `extractSpeakersWithStats`, `getConsistentParticipantCount` |
+| `src/pages/MeetingDetail.tsx` | Ersetze lokale Logik durch zentrale Utils (Zeilen 541-608) |
+| `src/utils/deepDiveAnalysis.ts` | Integriere participantUtils fuer konsistente Filterung |
+| `src/components/recordings/RecordingCard.tsx` | (Optional) Teilnehmerzahl anzeigen |
 
-## Erwartetes Ergebnis nach Re-Sync
+## Technische Details
 
-**Sprecher im Transkript (7 Personen):**
-1. Dominik Bauer
-2. Fabian Becker
-3. Jacqueline Gans
-4. Goerge, Maren (M.) -> wird als "Maren Görge" normalisiert
-5. Manske, Simone (S.) -> wird als "Simone Manske" normalisiert
-6. Beier-Nies, Katja (K.) -> wird als "Katja Beier-Nies" normalisiert
+### Neue Funktion: getConsistentParticipantCount
 
-**Gefiltert (keine Teilnehmer):**
-- Notetaker/Bot (bereits gefiltert)
-
-**Teilnehmerzahl:** 6 echte Personen
-
-## Namens-Normalisierung Details
-
-Die Namen kommen von Recall.ai im Format "Nachname, Vorname (Kuerzel)". 
-Beispiel-Transformation:
 ```text
-"Goerge, Maren (M.)" 
-  -> Split bei Komma: ["Goerge", "Maren (M.)"]
-  -> Vorname extrahieren: "Maren"
-  -> Nachname normalisieren: "Görge" (oe -> ö)
-  -> Ergebnis: "Maren Görge"
+export interface ParticipantResult {
+  count: number;
+  names: string[];
+  source: 'database' | 'transcript' | 'fallback';
+}
 
-"Beier-Nies, Katja (K.)"
-  -> Split bei Komma: ["Beier-Nies", "Katja (K.)"]
-  -> Vorname extrahieren: "Katja"
-  -> Nachname bleibt: "Beier-Nies"
-  -> Ergebnis: "Katja Beier-Nies"
+export const getConsistentParticipantCount = (
+  recording: {
+    participants?: Participant[] | null;
+    transcript_text?: string | null;
+  }
+): ParticipantResult => {
+  // 1. Versuche DB-Teilnehmer (ohne Bots)
+  if (recording.participants?.length) {
+    const realParticipants = filterRealParticipants(recording.participants);
+    if (realParticipants.length > 0) {
+      return {
+        count: realParticipants.length,
+        names: realParticipants.map(p => p.name),
+        source: 'database'
+      };
+    }
+  }
+  
+  // 2. Fallback: Extrahiere aus Transkript
+  if (recording.transcript_text) {
+    const extracted = extractParticipantsFromTranscript(recording.transcript_text);
+    if (extracted.length > 0) {
+      return {
+        count: extracted.length,
+        names: extracted.map(p => p.name),
+        source: 'transcript'
+      };
+    }
+  }
+  
+  // 3. Absoluter Fallback
+  return { count: 0, names: [], source: 'fallback' };
+};
 ```
 
-## Status: ✅ IMPLEMENTIERT
+### Metadaten-Filter
 
-Die folgenden Änderungen wurden durchgeführt:
+```text
+const METADATA_PATTERNS = [
+  /^\[Meeting-Info\]$/i,
+  /^User-ID:/i,
+  /^User-Email:/i,
+  /^Recording-ID:/i,
+  /^Erstellt:/i,
+  /^---$/,
+];
 
-### 1. src/utils/participantUtils.ts
-- `normalizeGermanUmlauts()`: Konvertiert oe→ö, ae→ä, ue→ü
-- `normalizeGermanName()`: "Nachname, Vorname (X.)" → "Vorname Nachname"
-- `extractParticipantsFromTranscript()`: Fallback-Extraktion aus Transkript
-- `getParticipantCountWithFallback()`: Kombinierte Logik für Teilnehmerzählung
+export const isMetadataField = (name: string): boolean => {
+  const trimmed = name.trim();
+  return METADATA_PATTERNS.some(pattern => pattern.test(trimmed));
+};
 
-### 2. supabase/functions/sync-recording/index.ts
-- Namens-Normalisierung beim Import angewendet
-- Fallback-Logik: Extrahiert Teilnehmer aus Transkript wenn API-Daten fehlen
-- Bot-Filter auf normalisierte Namen angewendet
+export const stripMetadataHeader = (transcript: string): string => {
+  const separatorIndex = transcript.indexOf('---\n');
+  if (separatorIndex > -1 && separatorIndex < 500) {
+    // Header ist am Anfang, entfernen
+    return transcript.slice(separatorIndex + 4).trimStart();
+  }
+  return transcript;
+};
+```
 
-## Nächster Schritt
-Klicke im Meeting auf **"Transkript neu laden"** um die neuen Regeln anzuwenden.
+## Erwartetes Ergebnis
+
+Nach der Implementierung:
+1. **Konsistente Teilnehmerzahl** auf MeetingDetail-Seite
+2. **Gleiche Anzahl** in Deep-Dive-Analyse
+3. **Keine Metadaten-Felder** als Sprecher gezaehlt
+4. **Bots automatisch gefiltert** an allen Stellen
+5. **Fallback-Logik** wenn DB keine Teilnehmer hat
+
+## Beispiel-Szenario
+
+Meeting mit 6 echten Teilnehmern:
+- Dominik Bauer
+- Fabian Becker  
+- Jacqueline Gans
+- Maren Goerge
+- Simone Manske
+- Katja Beier-Nies
+
+```text
+VORHER (inkonsistent):
+  Dashboard: 0 Teilnehmer (participants null)
+  MeetingDetail: 2 Teilnehmer (Sprecher 1, Sprecher 2)
+  Deep Dive: 8 Sprecher (inkl. Metadaten)
+
+NACHHER (konsistent):
+  Dashboard: 6 Teilnehmer (aus Transkript extrahiert)
+  MeetingDetail: 6 Teilnehmer (gleiche Logik)
+  Deep Dive: 6 Sprecher (gefiltert)
+```
+
+## Implementierungsreihenfolge
+
+1. **participantUtils.ts** - Neue zentrale Funktionen
+2. **MeetingDetail.tsx** - Lokale Logik durch zentrale ersetzen
+3. **deepDiveAnalysis.ts** - Integration mit participantUtils
+4. **Test** - Meeting "KI Training fuer Autohaendler" pruefen
+
