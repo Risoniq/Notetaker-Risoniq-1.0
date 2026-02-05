@@ -1,327 +1,129 @@
 
-# Plan: API-Key Erweiterung fuer Datenempfang (Bidirektionale API)
 
-## Uebersicht
+# Plan: Verbesserung der Sprecherzuordnung im Transkript
 
-Erweiterung des bestehenden API-Key-Systems um **eingehende Daten** zu unterstuetzen. Damit koennen externe Systeme nicht nur Daten abrufen, sondern auch:
-- Transkripte importieren
-- Meetings anlegen
-- Teilnehmer-Daten synchronisieren
-- Metadaten aktualisieren
+## Problem-Analyse
 
-## Aktuelle vs. neue Architektur
+Das Meeting "KI Training fuer Autohaeaendler" zeigt fragmentierte Sprecherabschnitte:
+- Kurze Einwuerfe wie `Fabian Becker: Ihnen` oder `Beier-Nies, Katja (K.): aus,` werden als separate Zeilen angezeigt
+- Diese Fragmente sind eigentlich Teile laengerer Aussagen, die durch kurze Zwischenrufe anderer Personen unterbrochen wurden
+- Das Problem entsteht durch die Art, wie Recall.ai die Audio-Segmente erkennt
 
-```text
-AKTUELL (nur Abrufen):
-┌──────────────────┐      GET       ┌──────────────────┐
-│ Externes System  │ ───────────────> │  Notetaker API   │
-│ (Slack, CRM)     │                  │ (api-dashboard)  │
-└──────────────────┘                  └──────────────────┘
+## Ursache
 
-NEU (bidirektional):
-┌──────────────────┐      GET       ┌──────────────────┐
-│ Externes System  │ <──────────────> │  Notetaker API   │
-│ (Slack, CRM)     │      POST       │ (lesen + schreiben)│
-└──────────────────┘                  └──────────────────┘
-```
+Recall.ai nutzt Voice Activity Detection (VAD), die bei kurzen Sprechpausen oder Sprecherwechseln neue Segmente erstellt. Das fuehrt zu:
+- Sehr kurzen Einzel-Wort-Segmenten
+- Fragmentierten Saetzen
+- Schwer lesbaren Transkripten
 
-## Neue API-Endpoints (Schreiben)
+## Loesungsansatz
 
-### 1. Transkript importieren
+### Option 1: Frontend-Zusammenfuehrung (empfohlen)
 
-```text
-POST /api-import-transcript
+Aufeinanderfolgende Segmente desselben Sprechers werden in der Darstellung zusammengefuehrt, waehrend die urspruenglichen Daten erhalten bleiben.
 
-Headers:
-  x-api-key: ntr_xxxxxxxxxx
+**Vorteile:**
+- Keine Aenderung an den Originaldaten
+- Schnell umsetzbar
+- Rueckwaertskompatibel
 
-Body:
-{
-  "target_user_email": "user@firma.de",   // Welchem User zuordnen
-  "title": "Kundengespraech XYZ",
-  "transcript_text": "Speaker 1: Hallo...",
-  "meeting_date": "2026-02-05T10:00:00Z", // Optional
-  "duration_seconds": 1800,               // Optional
-  "source": "zoom_import",                // Quellsystem
-  "participants": [                       // Optional
-    { "name": "Max Mustermann", "email": "max@firma.de" }
-  ],
-  "run_analysis": true                    // KI-Analyse ausfuehren?
-}
+### Option 2: Backend-Optimierung bei Sync
 
-Response:
-{
-  "success": true,
-  "recording_id": "uuid",
-  "title": "Kundengespraech XYZ",
-  "status": "done",                       // oder "processing"
-  "summary": "...",                        // falls run_analysis=true
-  "action_items": [...]
-}
-```
+Segmente werden bereits beim Import aus Recall.ai intelligent zusammengefuehrt, basierend auf Zeitluecken und Sprecheridentitaet.
 
-### 2. Meeting Metadaten aktualisieren
+**Vorteile:**
+- Saubere Daten in der Datenbank
+- Einmalige Verarbeitung
+
+## Technische Umsetzung
+
+### Aenderung 1: speakerColors.ts - Segment-Zusammenfuehrung
+
+Die Funktion `parseTranscriptWithColors` wird erweitert, um aufeinanderfolgende kurze Segmente desselben Sprechers zusammenzufuehren:
 
 ```text
-PATCH /api-update-recording
+VORHER:
+  Fabian Becker: Ihnen
+  Beier-Nies, Katja (K.): das schon in irgendeiner Form...
+  Fabian Becker: aber trotzdem
+  Beier-Nies, Katja (K.): solltest du noch gerne was sagen
 
-Headers:
-  x-api-key: ntr_xxxxxxxxxx
-
-Body:
-{
-  "recording_id": "uuid",
-  "title": "Neuer Titel",                 // Optional
-  "participants": [...],                  // Optional
-  "custom_metadata": {...}                // Optional - fuer CRM etc.
-}
-
-Response:
-{
-  "success": true,
-  "updated_fields": ["title", "participants"]
-}
+NACHHER (optional zusammengefuehrt bei gleichem Sprecher):
+  Fabian Becker: Ihnen ... aber trotzdem
+  Beier-Nies, Katja (K.): das schon in irgendeiner Form... solltest du noch gerne was sagen
 ```
 
-### 3. Webhook-Daten empfangen (Callback)
+### Aenderung 2: Neue Funktion "Kurze Einwuerfe hervorheben"
 
-```text
-POST /api-webhook-callback
+Statt Zusammenfuehrung koennen kurze Einwuerfe (unter 5 Woerter) visuell anders dargestellt werden:
+- Kleinere Schrift
+- Graue/dezente Farbe
+- Inline-Darstellung statt Blockdarstellung
 
-Headers:
-  x-api-key: ntr_xxxxxxxxxx
+### Aenderung 3: sync-recording/index.ts - Optionale Segmentzusammenfuehrung
 
-Body:
-{
-  "event_type": "transcript_ready",       // oder "meeting_ended"
-  "source": "zoom",
-  "external_meeting_id": "zoom-123",
-  "target_user_email": "user@firma.de",
-  "data": {
-    "transcript": "...",
-    "video_url": "https://...",
-    "participants": [...]
-  }
-}
-```
-
-## Neue Berechtigungen
-
-Erweiterung des `permissions` JSONB-Feldes:
-
-| Permission | Beschreibung |
-|------------|-------------|
-| `dashboard` | Dashboard-Daten lesen (besteht) |
-| `transcripts` | Transkripte lesen (besteht) |
-| `team_stats` | Team-Statistiken lesen (besteht) |
-| **`import`** | Transkripte/Meetings importieren (NEU) |
-| **`update`** | Recordings aktualisieren (NEU) |
-| **`webhook_receive`** | Webhook-Callbacks empfangen (NEU) |
-
-## Backend Edge Functions
-
-### Neue Functions
-
-| Function | Methode | Beschreibung |
-|----------|---------|-------------|
-| `api-import-transcript` | POST | Transkript von extern importieren |
-| `api-update-recording` | PATCH | Recording-Metadaten aktualisieren |
-| `api-webhook-callback` | POST | Webhook-Events empfangen |
-
-### Sicherheitslogik
-
-```typescript
-// Jede Schreib-Function prueft:
-// 1. API-Key valide?
-// 2. Hat Key die benoetigte Permission?
-// 3. Ziel-User existiert?
-// 4. Rate-Limit nicht ueberschritten?
-
-async function validateApiKeyForWrite(apiKey: string, permission: string) {
-  const keyRecord = await validateApiKey(supabase, apiKey, permission);
-  if (!keyRecord) return null;
-  
-  // Zusaetzliche Pruefung fuer Schreib-Operationen
-  if (keyRecord.expires_at && new Date(keyRecord.expires_at) < new Date()) {
-    return null;
-  }
-  
-  return keyRecord;
-}
-```
-
-## Frontend Erweiterungen
-
-### CreateApiKeyDialog
-
-Zusaetzliche Berechtigungs-Checkboxen:
-
-```text
-Berechtigungen:
-
-LESEN (Daten abrufen):
-[x] Dashboard-Daten
-[x] Transkripte
-[x] Team-Statistiken
-
-SCHREIBEN (Daten empfangen):
-[x] Transkripte importieren
-[x] Recordings aktualisieren
-[ ] Webhook-Callbacks
-```
-
-### ApiKeyCard
-
-Erweiterte Badge-Anzeige fuer Schreib-Berechtigungen:
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│ CRM Integration          ntr_abc12345...                 │
-│ Erstellt: 01.02.2026     Zuletzt: vor 2h                │
-│                                                          │
-│ LESEN: [Dashboard] [Transkripte]                        │
-│ SCHREIBEN: [Import] [Update]                            │
-│                                                          │
-│ [Webhook] [Dokumentation] [Loeschen]                    │
-└──────────────────────────────────────────────────────────┘
-```
-
-### API-Dokumentations-Seite
-
-Neue Sektion fuer Import-Endpoints mit Beispielen:
-
-```text
-## Transkript importieren
-
-POST /api-import-transcript
-
-curl -X POST \
-  -H "x-api-key: ntr_xxxxx" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "target_user_email": "user@firma.de",
-    "title": "Meeting vom 05.02.",
-    "transcript_text": "Speaker 1: ..."
-  }' \
-  "https://.../api-import-transcript"
-```
-
-## Datenbank-Aenderungen
-
-Keine Schema-Aenderungen noetig - das `permissions` JSONB-Feld ist bereits flexibel.
-
-Beispiel neuer Permissions-Wert:
-```json
-{
-  "dashboard": true,
-  "transcripts": true,
-  "team_stats": false,
-  "import": true,
-  "update": true,
-  "webhook_receive": false
-}
-```
-
-## Implementierungsreihenfolge
-
-### Phase 1: Backend Import
-1. `api-import-transcript` Edge Function
-2. Validierung und User-Lookup per E-Mail
-3. Integration mit `analyze-transcript`
-
-### Phase 2: Backend Update
-4. `api-update-recording` Edge Function
-5. Berechtigungspruefung auf Recording-Ebene
-
-### Phase 3: Backend Webhook
-6. `api-webhook-callback` Edge Function
-7. Event-Routing und Verarbeitung
-
-### Phase 4: Frontend
-8. CreateApiKeyDialog erweitern (Schreib-Permissions)
-9. ApiKeyCard erweitern (Badges)
-10. API-Dokumentation erweitern
+Beim Abrufen des Transkripts von Recall.ai werden aufeinanderfolgende Segmente desselben Sprechers zusammengefuehrt, wenn der Zeitabstand unter 2 Sekunden liegt.
 
 ## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `supabase/functions/api-import-transcript/index.ts` | NEU |
-| `supabase/functions/api-update-recording/index.ts` | NEU |
-| `supabase/functions/api-webhook-callback/index.ts` | NEU |
-| `supabase/config.toml` | verify_jwt = false fuer neue Functions |
-| `src/components/admin/CreateApiKeyDialog.tsx` | Schreib-Permissions |
-| `src/components/admin/ApiKeyCard.tsx` | Import/Update Badges |
+| `src/utils/speakerColors.ts` | Neue Funktion `mergeConsecutiveSpeakerSegments` |
+| `src/components/transcript/ColoredTranscript.tsx` | Option zur Zusammenfuehrung oder Inline-Darstellung kurzer Einwuerfe |
+| `supabase/functions/sync-recording/index.ts` | Optionale Zusammenfuehrung beim Import (mit Zeitstempel-Pruefung) |
 
-## Sicherheitsueberlegungen
+## Implementierungsoptionen
 
-| Aspekt | Massnahme |
-|--------|-----------|
-| User-Validierung | E-Mail muss existierendem User gehoeren |
-| Rate Limiting | Max 50 Imports/Stunde pro API-Key |
-| Transkript-Groesse | Max 500.000 Zeichen wie bei Admin-Upload |
-| Audit Trail | Jeder Import wird geloggt mit API-Key-ID |
-| Kein Loeschen | API kann nur erstellen/aktualisieren, nicht loeschen |
+### Variante A: Nur Frontend (schnell)
 
-## Anwendungsbeispiele
+Zusammenfuehrung nur in der Anzeige - Originaldaten bleiben unveraendert.
 
-### Zoom-Integration
-```text
-Zoom Webhook -> api-webhook-callback -> Transkript erstellen
-```
+Vorteil: Schnell, rueckwaertskompatibel
+Nachteil: Jedes Mal bei Darstellung berechnet
 
-### CRM-Sync
-```text
-CRM System -> api-import-transcript -> Meeting anlegen
-             -> api-update-recording -> Teilnehmer aktualisieren
-```
+### Variante B: Backend-Optimierung (nachhaltig)
 
-### Batch-Import
-```text
-Python Script -> api-import-transcript (Loop) -> Historische Meetings importieren
-```
+Zusammenfuehrung bereits beim Speichern in die Datenbank.
 
-## API-Dokumentation Beispiel
+Vorteil: Saubere Daten, einmalige Berechnung
+Nachteil: Erfordert Re-Sync bestehender Meetings
 
-Fuer den Admin-Bereich wird eine erweiterte Dokumentation angezeigt:
+### Variante C: Beide kombiniert
+
+Backend optimiert neue Meetings, Frontend kann alte Daten verbessert darstellen.
+
+## Vorgeschlagene Loesung
+
+**Variante C** wird empfohlen:
+
+1. **Frontend**: `parseTranscriptWithColors` erweitern um optionale Zusammenfuehrung
+2. **Backend**: `sync-recording` um Zeitstempel-basierte Zusammenfuehrung ergaenzen
+3. **Bestehendes Meeting**: Kann per "Re-Sync" aktualisiert werden
+
+## Beispiel der Zusammenfuehrungslogik
 
 ```text
-┌────────────────────────────────────────────────────────────┐
-│  API-Dokumentation                                         │
-├────────────────────────────────────────────────────────────┤
-│                                                            │
-│  ## Transkript importieren                                 │
-│                                                            │
-│  Importiere ein Transkript von einem externen System.      │
-│                                                            │
-│  POST /api-import-transcript                               │
-│                                                            │
-│  Headers:                                                  │
-│    x-api-key: ntr_xxxxx                                   │
-│    Content-Type: application/json                          │
-│                                                            │
-│  Body:                                                     │
-│  {                                                         │
-│    "target_user_email": "user@firma.de",                  │
-│    "title": "Meeting Titel",                              │
-│    "transcript_text": "Speaker 1: Hallo...",              │
-│    "run_analysis": true                                    │
-│  }                                                         │
-│                                                            │
-│  Response:                                                 │
-│  {                                                         │
-│    "success": true,                                        │
-│    "recording_id": "uuid-...",                            │
-│    "status": "done"                                        │
-│  }                                                         │
-└────────────────────────────────────────────────────────────┘
+Regeln fuer die Zusammenfuehrung:
+1. Gleicher Sprecher wie vorheriges Segment
+2. Zeitabstand zum vorherigen Segment < 2 Sekunden (nur Backend)
+3. Vorheriges Segment endet nicht mit Satzzeichen (. ! ?)
+4. Segment hat weniger als 5 Woerter
+
+Wenn alle Regeln erfuellt: Segment an vorheriges anhaengen
 ```
 
-## Risikobewertung
+## Migration bestehender Daten
+
+Fuer das spezifische Meeting "KI Training fuer Autohaendler":
+1. Im Admin-Bereich "Re-Sync" ausloesen
+2. Transkript wird neu von Recall.ai abgerufen
+3. Neue Zusammenfuehrungslogik wird angewendet
+
+## Risiken und Einschraenkungen
 
 | Risiko | Bewertung | Mitigation |
 |--------|-----------|------------|
-| Missbrauch Import | Mittel | Rate Limiting, User-Validierung |
-| Falsche User-Zuordnung | Niedrig | E-Mail-Lookup statt User-ID |
-| Quota-Umgehung | Niedrig | Import zaehlt zum Kontingent |
-| Datenintegritaet | Niedrig | Transkript-Validierung (min. 100 Zeichen) |
+| Falsche Zusammenfuehrung | Niedrig | Konservative Regeln (nur bei gleichem Sprecher) |
+| Verlust von Einwuerfen | Niedrig | Einwuerfe werden angehaengt, nicht geloescht |
+| Performance | Sehr niedrig | Algorithmus ist O(n), keine DB-Abfragen |
+
