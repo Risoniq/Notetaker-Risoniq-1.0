@@ -21,6 +21,7 @@ export interface Recording {
   action_items: string[] | null;
   word_count: number | null;
   participants: RecordingParticipant[] | null;
+  source: string | null;
 }
 
 export type RecordingStatus = 'pending' | 'joining' | 'recording' | 'processing' | 'done' | 'error' | 'timeout';
@@ -31,6 +32,7 @@ export const getStatusLabel = (status: string): string => {
     joining: 'Beitritt...',
     recording: 'Aufnahme läuft',
     processing: 'Verarbeitung...',
+    transcribing: 'Transkribiert...',
     done: 'Fertig',
     error: 'Fehler',
     timeout: 'Zeitüberschreitung',
@@ -44,6 +46,7 @@ export const getStatusColor = (status: string): string => {
     joining: 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400',
     recording: 'bg-red-500/20 text-red-700 dark:text-red-400',
     processing: 'bg-blue-500/20 text-blue-700 dark:text-blue-400',
+    transcribing: 'bg-purple-500/20 text-purple-700 dark:text-purple-400',
     done: 'bg-green-500/20 text-green-700 dark:text-green-400',
     error: 'bg-destructive/20 text-destructive',
     timeout: 'bg-orange-500/20 text-orange-700 dark:text-orange-400',

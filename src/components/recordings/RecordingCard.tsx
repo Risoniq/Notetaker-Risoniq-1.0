@@ -2,7 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Recording, getStatusLabel, getStatusColor } from "@/types/recording";
-import { Calendar, Clock, FileText, Target, CheckSquare, Loader2 } from "lucide-react";
+import { Calendar, Clock, FileText, Target, CheckSquare, Loader2, Upload } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
@@ -41,9 +41,14 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
             {isAnalyzing && !recording.title ? (
               <Skeleton className="h-5 w-3/4" />
             ) : (
-              <h3 className="font-semibold text-foreground line-clamp-2">
-                {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
-              </h3>
+              <div className="flex items-center gap-2 min-w-0">
+                {recording.source === 'manual' && (
+                  <Upload className="h-4 w-4 text-muted-foreground shrink-0" aria-label="Hochgeladene Datei" />
+                )}
+                <h3 className="font-semibold text-foreground line-clamp-2">
+                  {recording.title || `Meeting ${recording.meeting_id.slice(0, 8)}`}
+                </h3>
+              </div>
             )}
             <Badge className={`shrink-0 ${getStatusColor(displayStatus)}`}>
               {isAnalyzing && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
