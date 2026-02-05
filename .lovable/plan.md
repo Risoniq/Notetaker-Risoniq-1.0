@@ -144,17 +144,20 @@ Beispiel-Transformation:
   -> Ergebnis: "Katja Beier-Nies"
 ```
 
-## Implementierungsreihenfolge
+## Status: ✅ IMPLEMENTIERT
 
-1. **Backend-Fix:** sync-recording Fallback-Logik fuer Teilnehmer-Extraktion
-2. **Frontend-Fix:** Teilnehmerzaehlung aus Transkript wenn participants null
-3. **Namen-Normalisierung:** Neue Utility-Funktion
-4. **Re-Sync:** Meeting erneut synchronisieren um neue Logik anzuwenden
+Die folgenden Änderungen wurden durchgeführt:
 
-## Risikobewertung
+### 1. src/utils/participantUtils.ts
+- `normalizeGermanUmlauts()`: Konvertiert oe→ö, ae→ä, ue→ü
+- `normalizeGermanName()`: "Nachname, Vorname (X.)" → "Vorname Nachname"
+- `extractParticipantsFromTranscript()`: Fallback-Extraktion aus Transkript
+- `getParticipantCountWithFallback()`: Kombinierte Logik für Teilnehmerzählung
 
-| Risiko | Bewertung | Mitigation |
-|--------|-----------|------------|
-| Falsche Umlaut-Konvertierung | Niedrig | Nur bekannte Muster (oe->ö, ae->ä, ue->ü) |
-| Doppelte Sprecher | Niedrig | Case-insensitive Deduplizierung |
-| Performance | Sehr niedrig | Regex-basiert, O(n) |
+### 2. supabase/functions/sync-recording/index.ts
+- Namens-Normalisierung beim Import angewendet
+- Fallback-Logik: Extrahiert Teilnehmer aus Transkript wenn API-Daten fehlen
+- Bot-Filter auf normalisierte Namen angewendet
+
+## Nächster Schritt
+Klicke im Meeting auf **"Transkript neu laden"** um die neuen Regeln anzuwenden.

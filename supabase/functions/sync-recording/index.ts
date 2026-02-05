@@ -615,18 +615,81 @@ Deno.serve(async (req) => {
               
               console.log(`Transkript: ${rawSegments.length} Roh-Segmente -> ${mergedSegments.length} zusammengeführte Segmente`)
               
-              const formattedTranscript = mergedSegments
+              // Hilfsfunktion: Deutsche Umlaute normalisieren (oe->ö, ae->ä, ue->ü)
+              const normalizeGermanUmlauts = (text: string): string => {
+                return text
+                  .replace(/([^aeiouAEIOU])oe/g, '$1ö')
+                  .replace(/([^aeiouAEIOU])ae/g, '$1ä')
+                  .replace(/([^aeiouAEIOU])ue/g, '$1ü')
+                  .replace(/^Oe/g, 'Ö')
+                  .replace(/^Ae/g, 'Ä')
+                  .replace(/^Ue/g, 'Ü');
+              };
+              
+              // Hilfsfunktion: Namen aus "Nachname, Vorname (X.)" Format normalisieren
+              const normalizeGermanName = (name: string): string => {
+                if (!name || typeof name !== 'string') return name;
+                let normalized = name.trim();
+                
+                // Prüfe auf "Nachname, Vorname (Kürzel)" Format
+                const commaMatch = normalized.match(/^([^,]+),\s*([^(]+)(?:\s*\([^)]+\))?$/);
+                if (commaMatch) {
+                  const lastName = commaMatch[1].trim();
+                  const firstName = commaMatch[2].trim();
+                  normalized = `${firstName} ${lastName}`;
+                }
+                
+                // Umlaut-Normalisierung
+                return normalizeGermanUmlauts(normalized);
+              };
+              
+              // Normalisiere Sprechernamen im Transkript
+              const normalizedSegments = mergedSegments.map(seg => ({
+                ...seg,
+                speaker: normalizeGermanName(seg.speaker)
+              }));
+              
+              const formattedTranscript = normalizedSegments
                 .map(seg => `${seg.speaker}: ${seg.text}`)
                 .join('\n\n')
               
-              // Ergänze participantsList mit Sprechern aus dem Transkript
-              transcriptParticipants.forEach((p) => {
-                const exists = participantsList.some(existing => existing.name === p.name)
-                if (!exists) {
-                  participantsList.push(p)
-                  console.log(`Teilnehmer aus Transkript hinzugefügt: "${p.name}"`)
+              // Ergänze participantsList mit Sprechern aus dem Transkript (normalisiert)
+              normalizedSegments.forEach((seg) => {
+                const normalizedName = seg.speaker;
+                const isBot = ['notetaker', 'bot', 'recording', 'assistant', 'meetingbot'].some(
+                  pattern => normalizedName.toLowerCase().includes(pattern)
+                );
+                
+                if (!isBot) {
+                  const exists = participantsList.some(existing => 
+                    normalizeGermanName(existing.name) === normalizedName
+                  );
+                  if (!exists) {
+                    participantsList.push({ id: seg.participantId || String(participantsList.length), name: normalizedName });
+                    console.log(`Teilnehmer aus Transkript hinzugefügt (normalisiert): "${normalizedName}"`);
+                  }
                 }
-              })
+              });
+              
+              // FALLBACK: Wenn participantsList immer noch leer ist, extrahiere alle Sprecher
+              if (participantsList.length === 0) {
+                console.log('participantsList leer - extrahiere alle Sprecher aus Transkript als Fallback');
+                const uniqueSpeakers = new Set<string>();
+                normalizedSegments.forEach(seg => {
+                  const isBot = ['notetaker', 'bot', 'recording', 'assistant', 'meetingbot'].some(
+                    pattern => seg.speaker.toLowerCase().includes(pattern)
+                  );
+                  if (!isBot && seg.speaker) {
+                    uniqueSpeakers.add(seg.speaker);
+                  }
+                });
+                
+                participantsList = Array.from(uniqueSpeakers).map((name, idx) => ({
+                  id: String(idx),
+                  name
+                }));
+                console.log(`Fallback: ${participantsList.length} Teilnehmer aus Transkript extrahiert`);
+              }
               
               // Add user information header to transcript for backend visibility
               const ownerId = recording.user_id || user.id;
