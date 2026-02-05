@@ -1,53 +1,90 @@
 
+
 ## Ziel
-Wenn eine Audiodatei hochgeladen wird, soll kein "Bot versucht beizutreten"-Feld erscheinen, sondern nur der Fortschritt der Transkription innerhalb der Upload-Karte angezeigt werden.
+Die Kalender-Verbindung (Google + Microsoft) soll wieder funktionieren. Aktuell schlagen beide mit "Failed to send a request to the Edge Function" fehl.
 
-## Analyse des Problems
-Aktuell passiert Folgendes:
-1. Benutzer lädt Audio-Datei hoch
-2. `AudioUploadCard` zeigt Fortschritt (Hochladen → Transkribieren → Erfolg) ✓
-3. Nach Erfolg wird `onUploadComplete(recordingId)` aufgerufen
-4. Dies öffnet den `RecordingViewer` mit Bot-spezifischen Meldungen ✗
+## Diagnose
 
-Der `RecordingViewer` ist nur für Bot-gesteuerte Meetings konzipiert und zeigt:
-- "Warte auf Bot..."
-- "Bot tritt bei..."
-- "Bot nimmt auf..."
+### Symptome
+- Console-Logs zeigen `FunctionsFetchError: Failed to send a request to the Edge Function`
+- Darunter: `TypeError: Failed to fetch` - was auf einen CORS-Fehler oder nicht erreichbare Funktion hinweist
+- **Keine Logs** in `google-recall-auth` und `microsoft-recall-auth` - die Anfragen kommen nie an
 
-## Lösung
-Für manuelle Uploads soll **kein** `RecordingViewer` geöffnet werden, da:
-- Die `AudioUploadCard` bereits einen eigenen Fortschrittsbalken hat
-- Die Transkription synchron abläuft (nicht asynchron wie beim Bot)
-- Nach Erfolg ist das Recording bereits fertig und kann in der Recordings-Liste gefunden werden
+### Ursache
+Die Edge Functions sind wahrscheinlich **nicht deployed** oder das Deployment ist fehlgeschlagen. Grund: Die Funktionen verwenden noch veraltete Import-URLs (`https://esm.sh/` und `https://deno.land/std@`), die laut Projekt-Architektur zu "Bundle generation timed out" Fehlern führen können.
 
-### Umsetzung
+---
 
-**Datei: `src/pages/Index.tsx`**
+## Umsetzungsplan
 
-Die Logik anpassen, sodass `setActiveRecordingId` nur vom Bot verwendet wird:
+### Schritt 1: Imports auf npm: Specifier migrieren
 
+Beide Funktionen müssen aktualisiert werden:
+
+**`supabase/functions/google-recall-auth/index.ts`**
 ```typescript
-// Nur Bot-Aufnahmen setzen activeRecordingId
-<QuickMeetingJoin onBotStarted={setActiveRecordingId} />
+// Vorher:
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Audio-Upload öffnet NICHT den RecordingViewer
-<AudioUploadCard onUploadComplete={() => {
-  // Optional: zur Recordings-Seite navigieren oder Query invalidieren
-}} />
+// Nachher:
+import { createClient } from "npm:@supabase/supabase-js@2";
 ```
 
-Alternativ (bessere UX): Den Callback entfernen, da die `AudioUploadCard` bereits selbst Feedback gibt:
-
-```diff
-- <AudioUploadCard onUploadComplete={setActiveRecordingId} />
-+ <AudioUploadCard />
+**`supabase/functions/microsoft-recall-auth/index.ts`**
+```typescript
+// Gleiche Änderungen
 ```
+
+Zusätzlich: Von `serve()` auf `Deno.serve()` umstellen (moderner Standard).
+
+### Schritt 2: Funktionen deployen
+
+Nach der Code-Aktualisierung beide Funktionen gezielt deployen:
+- `google-recall-auth`
+- `microsoft-recall-auth`
+
+### Schritt 3: Deployment verifizieren
+
+Per Test-Aufruf prüfen, dass die Funktionen erreichbar sind (sollten 401 statt 404 zurückgeben).
+
+### Schritt 4: End-to-End Test
+
+Kalender-Seite erneut aufrufen und Verbindung testen.
 
 ---
 
 ## Technische Details
 
-Die Änderung ist minimal:
-1. In `Index.tsx` den `onUploadComplete`-Callback von `AudioUploadCard` entfernen
-2. Der Upload zeigt weiterhin seinen eigenen Fortschritt und Erfolg
-3. Der `RecordingViewer` wird nur für echte Bot-Aufnahmen verwendet
+### Dateien die geändert werden
+
+| Datei | Änderung |
+|-------|----------|
+| `supabase/functions/google-recall-auth/index.ts` | Import-Migration auf `npm:`, `Deno.serve()` |
+| `supabase/functions/microsoft-recall-auth/index.ts` | Import-Migration auf `npm:`, `Deno.serve()` |
+
+### Import-Änderungen
+
+```typescript
+// ALT (problematisch):
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+// NEU (stabil):
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+// serve() → Deno.serve()
+Deno.serve(async (req) => {
+  // ... Rest bleibt gleich
+});
+```
+
+---
+
+## Akzeptanzkriterien
+
+- Beide Funktionen antworten nicht mehr mit 404
+- Console-Logs zeigen keine `FunctionsFetchError` mehr
+- Kalender-Verbindung kann gestartet werden (OAuth-Popup öffnet sich)
+- Nach OAuth-Callback wird Status als "verbunden" angezeigt
+
