@@ -1,60 +1,53 @@
 
 ## Ziel
-Die automatische Analyse (Key Points + To‑Dos) soll nach der ElevenLabs-Transkription zuverlässig laufen. Aktuell passiert das nicht, weil die Backend‑Funktion `analyze-transcript` in deiner Cloud-Umgebung **nicht erreichbar/deployed** ist (HTTP 404 NOT_FOUND).
+Wenn eine Audiodatei hochgeladen wird, soll kein "Bot versucht beizutreten"-Feld erscheinen, sondern nur der Fortschritt der Transkription innerhalb der Upload-Karte angezeigt werden.
 
-## Was ich bereits sicher festgestellt habe (harte Ursache)
-- `transcribe-audio` speichert die ElevenLabs-Transkription bereits korrekt in der Datenbank (`recordings.transcript_text`) und setzt `status: 'done'`.
-- Danach versucht `transcribe-audio` automatisch die Analyse zu triggern:
-  - Request an: `${SUPABASE_URL}/functions/v1/analyze-transcript`
-  - Ergebnis in den Logs: **{"code":"NOT_FOUND","message":"Requested function was not found"}**
-- Ein direkter Aufruf von `/analyze-transcript` liefert ebenfalls **404 NOT_FOUND**.
-→ Das ist kein Prompt-/Parsing-Problem, sondern: **Die Funktion ist in der Umgebung nicht bereitgestellt** (oder wurde nie erfolgreich deployed).
+## Analyse des Problems
+Aktuell passiert Folgendes:
+1. Benutzer lädt Audio-Datei hoch
+2. `AudioUploadCard` zeigt Fortschritt (Hochladen → Transkribieren → Erfolg) ✓
+3. Nach Erfolg wird `onUploadComplete(recordingId)` aufgerufen
+4. Dies öffnet den `RecordingViewer` mit Bot-spezifischen Meldungen ✗
 
-## Umsetzungsschritte (Fix)
-### 1) `analyze-transcript` in der Cloud bereitstellen (Deployment)
-- Backend-Funktion `analyze-transcript` gezielt deployen.
-- Danach sofort per einfachem Request verifizieren, dass sie nicht mehr 404 zurückgibt (mindestens 401/405 wäre schon ein gutes Zeichen, 404 muss weg sein).
+Der `RecordingViewer` ist nur für Bot-gesteuerte Meetings konzipiert und zeigt:
+- "Warte auf Bot..."
+- "Bot tritt bei..."
+- "Bot nimmt auf..."
 
-### 2) End-to-End Test über den echten Upload-Flow
-- Im UI eine Audiodatei erneut hochladen (derselbe Weg wie bisher).
-- Erwartung:
-  1. `transcribe-audio` läuft durch, speichert `recordings.transcript_text`, setzt Status auf `done`
-  2. Danach erfolgreicher Trigger: `AI analysis triggered successfully`
-  3. `analyze-transcript` schreibt `summary`, `key_points`, `action_items` in `recordings`
+## Lösung
+Für manuelle Uploads soll **kein** `RecordingViewer` geöffnet werden, da:
+- Die `AudioUploadCard` bereits einen eigenen Fortschrittsbalken hat
+- Die Transkription synchron abläuft (nicht asynchron wie beim Bot)
+- Nach Erfolg ist das Recording bereits fertig und kann in der Recordings-Liste gefunden werden
 
-### 3) Fehlerrobustheit verbessern (damit es “nicht wieder still” scheitert)
-Auch wenn der aktuelle Blocker das Deployment ist, empfehle ich im gleichen Zug zwei Verbesserungen, weil “Analyse funktioniert nicht” häufig sonst erneut durchschlägt:
+### Umsetzung
 
-**3.1 Robustere JSON-Extraktion in `analyze-transcript`**
-- Der Code macht aktuell ein sehr striktes `JSON.parse()` nach einfachem Entfernen von ```json```-Blöcken.
-- Verbesserung: JSON sauber aus Mixed-Text extrahieren (Objekt-Grenzen `{...}` finden), typische Fehler reparieren (Trailing Commas / Control Chars). Das reduziert Ausfälle bei langen/ungewöhnlichen Transkripten.
+**Datei: `src/pages/Index.tsx`**
 
-**3.2 Besseres Logging + Fehler-Rückgabe**
-- Wenn AI-Gateway 402/429 oder JSON-Parse fehlschlägt, sollte die Funktion eine klare Fehlermeldung zurückgeben.
-- Optional: in der Datenbank ein Feld/Status setzen (z.B. `analysis_status: error`) – nur falls ihr so etwas bereits nutzt oder wollt.
+Die Logik anpassen, sodass `setActiveRecordingId` nur vom Bot verwendet wird:
 
-### 4) (Optional) Konsistenz in Modellwahl
-- In `analyze-transcript` wird aktuell `google/gemini-2.5-flash` genutzt.
-- Standard (laut Lovable AI Guidance) wäre `google/gemini-3-flash-preview`.
-- Nicht zwingend für den Fix, aber sinnvoll für bessere Stabilität/Qualität.
+```typescript
+// Nur Bot-Aufnahmen setzen activeRecordingId
+<QuickMeetingJoin onBotStarted={setActiveRecordingId} />
 
-## Akzeptanzkriterien (woran wir “es geht” erkennen)
-- Ein Upload erzeugt eine Recording-Zeile mit:
-  - `transcript_text` gefüllt
-  - `summary`, `key_points`, `action_items` innerhalb kurzer Zeit gefüllt (oder nach “Analyse neu starten” Button)
-- Keine 404 NOT_FOUND mehr bei `analyze-transcript`
-- In `transcribe-audio` Logs steht nach Upload: “AI analysis triggered successfully”
-- In `analyze-transcript` Logs sieht man: Auth ok → Transcript length → AI Response received → Analysis saved successfully
+// Audio-Upload öffnet NICHT den RecordingViewer
+<AudioUploadCard onUploadComplete={() => {
+  // Optional: zur Recordings-Seite navigieren oder Query invalidieren
+}} />
+```
 
-## Risiken / Edge Cases
-- Wenn `analyze-transcript` nach Deployment zwar erreichbar ist, aber dann 401/403 wirft:
-  - Dann ist es ein Auth-Header/Token-Thema (Service Role vs User Token). Das prüfen wir anhand der neuen Logs.
-- Wenn Analyse speichert, aber UI zeigt nichts:
-  - Dann ist es ein Frontend-Refresh/Caching-Thema (React Query Invalidation). Würden wir dann im zweiten Schritt angehen.
+Alternativ (bessere UX): Den Callback entfernen, da die `AudioUploadCard` bereits selbst Feedback gibt:
 
-## Konkrete Änderungen, die ich nach deiner Freigabe umsetze
-1. Backend: `analyze-transcript` deployen (und ggf. einmal `transcribe-audio` mitdeployen).
-2. Backend: `analyze-transcript` JSON-Parsing robuster machen (Extraktion + Reparatur).
-3. Backend: Logging/Fehlertexte klarer machen, damit man in Zukunft sofort sieht, warum Analyse scheitert.
-4. Test: Upload erneut ausführen und prüfen, ob Key Points / To‑Dos im Recording auftauchen.
+```diff
+- <AudioUploadCard onUploadComplete={setActiveRecordingId} />
++ <AudioUploadCard />
+```
 
+---
+
+## Technische Details
+
+Die Änderung ist minimal:
+1. In `Index.tsx` den `onUploadComplete`-Callback von `AudioUploadCard` entfernen
+2. Der Upload zeigt weiterhin seinen eigenen Fortschritt und Erfolg
+3. Der `RecordingViewer` wird nur für echte Bot-Aufnahmen verwendet
