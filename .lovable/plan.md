@@ -1,55 +1,59 @@
 
 
-## Animierter Link zu den Meeting-Analysen
+## Status: Analyse bereits implementiert ✓
 
-### Übersicht
-Ein animierter Call-to-Action unterhalb der drei Kacheln, der Nutzer zum neuen "Aufnahmen"-Tab führt.
+### Aktuelle Funktionsweise
+Die automatische Analyse für manuelle Audio-Uploads ist bereits vollständig implementiert:
 
----
-
-## Änderungen
-
-### 1. Animierten Link hinzufügen
-**Datei:** `src/pages/Index.tsx`
-
-Nach dem Grid mit den drei Kacheln (Zeile 93) einen zentrierten Link einfügen:
-
-```tsx
-import { Link } from "react-router-dom";
-import { ArrowRight } from "lucide-react";
-
-// Nach dem Grid:
-<Link 
-  to="/recordings" 
-  className="group flex items-center justify-center gap-2 py-4 text-lg font-medium text-primary transition-all duration-300 hover:gap-4"
->
-  <span className="animate-fade-in">Zu den Meeting-Analysen</span>
-  <ArrowRight className="h-5 w-5 transition-transform duration-300 group-hover:translate-x-2" />
-</Link>
-```
-
----
-
-## Technische Details
-
-| Element | Effekt |
-|---------|--------|
-| Text | Fade-in Animation beim Laden |
-| Container | Gap vergrößert sich bei Hover (2 → 4) |
-| Pfeil | Bewegt sich nach rechts bei Hover (`translate-x-2`) |
-| Übergang | Sanfte 300ms Transition |
-
-## Visuelles Ergebnis
 ```text
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│  Bot senden │  │   Upload    │  │   Analyse   │
-└─────────────┘  └─────────────┘  └─────────────┘
-
-          Zu den Meeting-Analysen  →
-                    ↑
-           Hover: Pfeil bewegt sich
-
+Audio Upload → ElevenLabs Transkription → analyze-transcript → Key Points, To-Dos, Summary
+                                                     ↓
+                                        MeetingDetail.tsx generiert Follow-up E-Mail
 ```
 
-Der Link erscheint zentriert unter den Kacheln mit einer subtilen Animation und führt direkt zur Aufnahmen-Seite.
+| Schritt | Funktion | Status |
+|---------|----------|--------|
+| 1. Upload | `transcribe-audio` | ✓ Implementiert |
+| 2. Transkription | ElevenLabs API | ⚠️ Blockiert (Free Tier) |
+| 3. KI-Analyse | `analyze-transcript` wird aufgerufen | ✓ Implementiert |
+| 4. Key Points | Aus Analyse in DB gespeichert | ✓ Implementiert |
+| 5. Action Items | Aus Analyse in DB gespeichert | ✓ Implementiert |
+| 6. Follow-up E-Mail | Clientseitig generiert aus Summary + Key Points + Action Items | ✓ Implementiert |
+
+---
+
+## Problem: ElevenLabs Free Tier blockiert
+
+Die Transkription schlägt fehl, weil ElevenLabs den Free Tier für dein Konto deaktiviert hat ("detected_unusual_activity").
+
+---
+
+## Lösungsoptionen
+
+### Option A: ElevenLabs Paid Plan
+Bestehende Implementierung funktioniert sofort wieder.
+
+### Option B: Alternative Transkription mit Lovable AI
+Ich kann die Transkription auf **Lovable AI** umstellen, das keine externe API benötigt:
+
+| Änderung | Beschreibung |
+|----------|-------------|
+| `transcribe-audio/index.ts` | ElevenLabs durch Lovable AI ersetzen |
+| Audio-Verarbeitung | Base64-Encoding für Lovable AI Gateway |
+| Diarization | Gemini Multimodal Audio-Analyse |
+
+**Vorteile:**
+- Kein externer API-Key erforderlich
+- Bereits im Projekt verfügbar (LOVABLE_API_KEY)
+- Multimodal Audio Support in Gemini
+
+**Einschränkungen:**
+- Keine garantierte Sprechererkennung wie bei ElevenLabs
+- Dateigrößenlimit beachten
+
+---
+
+## Empfehlung
+
+Soll ich **Option B** implementieren und die Transkription auf Lovable AI umstellen? Damit würde alles ohne externen API-Key funktionieren.
 
