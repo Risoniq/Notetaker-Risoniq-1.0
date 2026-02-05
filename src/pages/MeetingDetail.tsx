@@ -40,6 +40,7 @@ import { SpeakerQualityBanner } from "@/components/transcript/SpeakerQualityBann
 import { useSpeakerSuggestions } from "@/hooks/useSpeakerSuggestions";
 import { extractSpeakersInOrder, createSpeakerColorMap, SPEAKER_COLORS } from "@/utils/speakerColors";
 import { analyzeSpeakerQuality, SpeakerQualityResult } from "@/utils/speakerQuality";
+import { getConsistentParticipantCount } from "@/utils/participantUtils";
 import { EmailEditModal } from "@/components/meeting/EmailEditModal";
 import { ReportDownloadModal } from "@/components/meeting/ReportDownloadModal";
 import { DeepDiveModal } from "@/components/meeting/DeepDiveModal";
@@ -538,74 +539,14 @@ export default function MeetingDetail() {
   const keyPointsCount = recording.key_points?.length || 0;
   const actionItemsCount = recording.action_items?.length || 0;
 
-  // Teilnehmer aus Transkript oder participants-Feld extrahieren
-  const extractParticipants = (transcript: string | null): string[] => {
-    if (!transcript) return [];
-    
-    // Meta-Daten am Anfang entfernen (alles vor der --- Trennlinie)
-    const separatorIndex = transcript.indexOf('---');
-    const cleanedTranscript = separatorIndex !== -1 
-      ? transcript.substring(separatorIndex + 3) 
-      : transcript;
-    
-    const speakerPattern = /^([^:]+):/gm;
-    const matches = cleanedTranscript.match(speakerPattern);
-    if (!matches) return [];
-    const speakers = matches.map(m => m.replace(':', '').trim());
-    // Alle unique Sprecher zurückgeben (auch "Unbekannt" und "Sprecher X")
-    return [...new Set(speakers)];
-  };
+  // Zentrale Teilnehmerzählung (Single Source of Truth)
+  const participantResult = getConsistentParticipantCount({
+    participants: recording.participants as { id: string; name: string }[] | null,
+    transcript_text: recording.transcript_text,
+  });
   
-  // Nutze participants aus DB wenn vorhanden, sonst extrahiere aus Transkript
-  const dbParticipants = recording.participants as { id: string; name: string }[] | null;
-  const transcriptParticipants = extractParticipants(recording.transcript_text);
-  
-  // Hilfsfunktion: Bot/Notetaker-Erkennung
-  const isBot = (name: string): boolean => {
-    const botPatterns = ['notetaker', 'bot', 'recording', 'assistant', 'meetingbot'];
-    return botPatterns.some(p => name.toLowerCase().includes(p));
-  };
-  
-  // Berechne Teilnehmeranzahl - filtere Bots und generische Fallbacks
-  let participantCount = 0;
-  let participantNames: string[] = [];
-  
-  if (dbParticipants && dbParticipants.length > 0) {
-    // Aus DB (zukünftige Meetings mit Speaker Timeline) - filtere Bots
-    const realParticipants = dbParticipants.filter(p => p.name && !isBot(p.name));
-    participantCount = realParticipants.length;
-    participantNames = realParticipants.map(p => p.name);
-  } else if (transcriptParticipants.length > 0) {
-    // Aus Transkript extrahiert - filtere Bots und generische Namen
-    const realSpeakers = transcriptParticipants.filter(s => 
-      s !== 'Unbekannt' && 
-      !s.startsWith('Sprecher ') && 
-      !isBot(s)
-    );
-    
-    if (realSpeakers.length > 0) {
-      participantCount = realSpeakers.length;
-      participantNames = realSpeakers;
-    } else {
-      // Zähle einzigartige Sprecher-Nummern (Sprecher 1, Sprecher 2, etc.)
-      const speakerNumbers = transcriptParticipants
-        .filter(s => s.startsWith('Sprecher '))
-        .map(s => s);
-      const uniqueSpeakers = [...new Set(speakerNumbers)];
-      
-      if (uniqueSpeakers.length > 0) {
-        participantCount = uniqueSpeakers.length;
-        participantNames = uniqueSpeakers;
-      } else {
-        // Mindestens 2 Teilnehmer wenn es ein Gespräch gibt
-        participantCount = recording.transcript_text && recording.transcript_text.includes('\n\n') ? 2 : 1;
-        participantNames = ['Unbekannte Teilnehmer'];
-      }
-    }
-  } else if (recording.transcript_text) {
-    participantCount = 1;
-    participantNames = ['Unbekannt'];
-  }
+  const participantCount = participantResult.count;
+  const participantNames = participantResult.names;
 
   const filterButtons: { key: TimeFilter; label: string }[] = [
     { key: 'heute', label: 'Heute' },
