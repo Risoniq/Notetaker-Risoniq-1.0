@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 // Dynamic CORS headers based on origin
 function getCorsHeaders(req: Request) {
@@ -55,7 +54,7 @@ async function authenticateUser(req: Request): Promise<{ user: { id: string } | 
   return { user: { id: user.id } };
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   // Handle CORS preflight
@@ -250,16 +249,37 @@ ${jsonFormat}`;
       );
     }
 
-    console.log('AI Response received');
+    console.log('AI Response received, length:', content.length);
 
-    // Parse the JSON response
+    // Robust JSON extraction
     let analysis;
     try {
-      // Clean the response - remove markdown code blocks if present
-      const cleanedContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      analysis = JSON.parse(cleanedContent);
+      // Try multiple extraction strategies
+      let jsonStr = content;
+      
+      // Strategy 1: Remove markdown code blocks
+      jsonStr = jsonStr.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      
+      // Strategy 2: Find JSON object boundaries if still not valid
+      if (!jsonStr.startsWith('{')) {
+        const startIdx = jsonStr.indexOf('{');
+        const endIdx = jsonStr.lastIndexOf('}');
+        if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+          jsonStr = jsonStr.slice(startIdx, endIdx + 1);
+        }
+      }
+      
+      // Strategy 3: Clean common issues
+      jsonStr = jsonStr
+        .replace(/,\s*}/g, '}')  // trailing commas before }
+        .replace(/,\s*]/g, ']')  // trailing commas before ]
+        .replace(/[\x00-\x1F\x7F]/g, ' '); // control characters
+      
+      analysis = JSON.parse(jsonStr);
+      console.log('JSON parsed successfully');
     } catch (parseError) {
       console.error('Failed to parse AI response as JSON:', parseError);
+      console.error('Raw content preview:', content.substring(0, 500));
       return new Response(
         JSON.stringify({ error: 'Failed to parse AI response' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
