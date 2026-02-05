@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, Calendar, FileText, Settings, Shield, Mic } from "lucide-react";
+import { LayoutDashboard, Calendar, FileText, Settings, Shield, Mic, Video } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -13,6 +13,7 @@ interface AppLayoutProps {
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Kalender", url: "/calendar", icon: Calendar },
+  { title: "Aufnahmen", url: "/recordings", icon: Video },
   { title: "Transkripte", url: "/transcripts", icon: FileText },
   { title: "Einstellungen", url: "/settings", icon: Settings },
 ];
