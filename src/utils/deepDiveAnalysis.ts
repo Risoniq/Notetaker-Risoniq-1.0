@@ -1,6 +1,13 @@
 // Deep Dive Analysis Utilities
 // Analysiert Transkripte für Sprechanteile, offene Fragen, Small Talk und Kundenbedürfnisse
 
+import { 
+  isBot, 
+  isMetadataField, 
+  stripMetadataHeader, 
+  normalizeGermanName 
+} from '@/utils/participantUtils';
+
 export interface SpeakerShare {
   name: string;
   words: number;
@@ -93,47 +100,38 @@ const isOwnAccount = (speakerName: string, userEmail: string | null): boolean =>
   );
 };
 
-// Metadaten-Felder die keine echten Sprecher sind
-const METADATA_FIELDS = [
-  'user-id', 'user id', 'userid',
-  'user-email', 'user email', 'useremail',
-  'recording-id', 'recording id', 'recordingid',
-  'erstellt', 'created', 'datum', 'date',
-  'meeting-info', 'meeting info',
-];
-
 /**
- * Prüft ob ein Name ein Metadaten-Feld ist (kein echter Sprecher)
+ * Prüft ob ein Name ein valider Sprecher ist (nicht Bot, nicht Metadaten)
  */
-const isMetadataField = (name: string): boolean => {
-  const normalized = name.toLowerCase().trim();
-  return METADATA_FIELDS.some(field => normalized === field || normalized.includes(field));
+const isValidSpeaker = (name: string): boolean => {
+  return !isBot(name) && !isMetadataField(name);
 };
 
 /**
  * Analysiert Sprechanteile basierend auf Wortanzahl
+ * Nutzt zentrale Filter aus participantUtils
  */
 export const analyzeSpeakerShares = (
   transcript: string, 
   userEmail: string | null
 ): SpeakerShare[] => {
-  // Entferne Metadaten-Header (alles vor dem ersten ---)
-  const separatorIndex = transcript.indexOf('---');
-  const cleanTranscript = separatorIndex > -1 
-    ? transcript.slice(separatorIndex + 3) 
-    : transcript;
+  // Entferne Metadaten-Header (zentrale Funktion)
+  const cleanTranscript = stripMetadataHeader(transcript);
   
   const lines = cleanTranscript.split('\n');
   const speakerWords: Map<string, number> = new Map();
   
   lines.forEach(line => {
-    const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.0-9]+?):\s(.+)/);
+    const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.,0-9]+?):\s(.+)/);
     if (match) {
-      const speaker = match[1].trim();
+      const rawSpeaker = match[1].trim();
       const text = match[2].trim();
       
-      // Überspringe Metadaten-Felder
-      if (isMetadataField(speaker)) return;
+      // Zentrale Prüfung: Überspringe Bots und Metadaten
+      if (!isValidSpeaker(rawSpeaker)) return;
+      
+      // Normalisiere den Namen (zentrale Funktion)
+      const speaker = normalizeGermanName(rawSpeaker);
       
       const wordCount = text.split(/\s+/).filter(w => w.length > 0).length;
       
@@ -232,13 +230,19 @@ export const findOpenQuestions = (transcript: string): OpenQuestion[] => {
  * Analysiert den Anteil von Small Talk vs. geschäftlichem Inhalt
  */
 export const analyzeContentType = (transcript: string): ContentBreakdown => {
-  const lines = transcript.split('\n').filter(l => l.trim());
+  // Nutze bereinigte Transkript ohne Header
+  const cleanTranscript = stripMetadataHeader(transcript);
+  const lines = cleanTranscript.split('\n').filter(l => l.trim());
   let smallTalkWords = 0;
   let businessWords = 0;
   
   lines.forEach(line => {
-    const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.0-9]+?):\s(.+)/);
+    const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.,0-9]+?):\s(.+)/);
     if (!match) return;
+    
+    const speaker = match[1].trim();
+    // Überspringe Metadaten und Bots
+    if (!isValidSpeaker(speaker)) return;
     
     const text = match[2].trim().toLowerCase();
     const words = text.split(/\s+/).filter(w => w.length > 0);
@@ -273,15 +277,23 @@ export const extractCustomerNeeds = (
   transcript: string, 
   userEmail: string | null
 ): CustomerNeed[] => {
-  const lines = transcript.split('\n').filter(l => l.trim());
+  // Nutze bereinigte Transkript ohne Header
+  const cleanTranscript = stripMetadataHeader(transcript);
+  const lines = cleanTranscript.split('\n').filter(l => l.trim());
   const needs: CustomerNeed[] = [];
   
-  lines.forEach((line, index) => {
-    const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.0-9]+?):\s(.+)/);
+  lines.forEach((line) => {
+    const match = line.match(/^([A-Za-zÀ-ÿ\s\-\.,0-9]+?):\s(.+)/);
     if (!match) return;
     
-    const speaker = match[1].trim();
+    const rawSpeaker = match[1].trim();
     const text = match[2].trim();
+    
+    // Überspringe Bots und Metadaten
+    if (!isValidSpeaker(rawSpeaker)) return;
+    
+    // Normalisiere den Namen
+    const speaker = normalizeGermanName(rawSpeaker);
     
     // Nur Kunden-Sprecher analysieren
     if (isOwnAccount(speaker, userEmail)) return;
