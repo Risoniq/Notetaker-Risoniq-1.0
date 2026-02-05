@@ -82,11 +82,25 @@ export const QuickMeetingJoin = ({ onBotStarted }: QuickMeetingJoinProps) => {
       const recordingId = data?.recording?.id;
       setMeetingUrl('');
       onBotStarted?.(recordingId);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending bot:', error);
+      
+      // Spezifische Fehlermeldungen behandeln
+      let errorMessage = 'Bot konnte nicht gestartet werden.';
+      
+      if (error?.message?.includes('Quota exhausted')) {
+        errorMessage = 'Dein Meeting-Kontingent ist erschöpft.';
+      } else if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
+        errorMessage = 'Sitzung abgelaufen. Bitte lade die Seite neu und logge dich erneut ein.';
+      } else if (error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
+        errorMessage = 'Netzwerkfehler. Bitte prüfe deine Internetverbindung.';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: 'Fehler',
-        description: 'Bot konnte nicht gestartet werden. Bitte versuche es erneut.',
+        description: errorMessage,
         variant: 'destructive',
       });
     } finally {
