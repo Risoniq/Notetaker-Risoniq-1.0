@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
 import { RecordingViewer } from "@/components/RecordingViewer";
-import { RecordingsList } from "@/components/recordings/RecordingsList";
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
 import { AccountAnalyticsCard } from "@/components/dashboard/AccountAnalyticsCard";
 import { TeamAnalyticsCard } from "@/components/dashboard/TeamAnalyticsCard";
 import { AudioUploadCard } from "@/components/dashboard/AudioUploadCard";
 import { Toaster } from "@/components/ui/toaster";
-import { RefreshCw, AlertTriangle, Users } from "lucide-react";
+import { RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -16,14 +15,12 @@ import { useUserQuota } from "@/hooks/useUserQuota";
 import { useTeamleadCheck } from "@/hooks/useTeamleadCheck";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAutoStartTour } from "@/hooks/useOnboardingTour";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 const Index = () => {
   const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null);
   const { quota, loading: quotaLoading } = useUserQuota();
-  const { isTeamlead, teamName, isLoading: teamleadLoading } = useTeamleadCheck();
+  const { isTeamlead, teamName } = useTeamleadCheck();
   const [showExhaustedModal, setShowExhaustedModal] = useState(false);
-  const [viewMode, setViewMode] = useState<'personal' | 'team'>('personal');
 
   // Auto-start onboarding tour for first-time users
   useAutoStartTour();
@@ -54,19 +51,8 @@ const Index = () => {
             </p>
           </div>
           
-          {/* Toolbar with Team Toggle */}
+          {/* Toolbar */}
           <div className="flex items-center gap-3">
-            {isTeamlead && !teamleadLoading && (
-              <ToggleGroup type="single" value={viewMode} onValueChange={(v) => v && setViewMode(v as 'personal' | 'team')}>
-                <ToggleGroupItem value="personal" aria-label="Meine Meetings">
-                  Meine
-                </ToggleGroupItem>
-                <ToggleGroupItem value="team" aria-label="Team-Meetings">
-                  <Users className="h-4 w-4 mr-1" />
-                  Team
-                </ToggleGroupItem>
-              </ToggleGroup>
-            )}
             <Button variant="glass" size="lg">
               <RefreshCw className="h-4 w-4 mr-2" />
               Aktualisieren
@@ -97,8 +83,8 @@ const Index = () => {
                 <AudioUploadCard onUploadComplete={setActiveRecordingId} />
               </GlassCard>
               
-              <GlassCard title={viewMode === 'team' ? `Team-Analyse: ${teamName}` : 'Account-Analyse'}>
-                {viewMode === 'team' ? (
+              <GlassCard title={isTeamlead ? `Team-Analyse: ${teamName}` : 'Account-Analyse'}>
+                {isTeamlead ? (
                   <TeamAnalyticsCard />
                 ) : (
                   <AccountAnalyticsCard />
@@ -121,10 +107,6 @@ const Index = () => {
             <RecordingViewer recordingId={activeRecordingId} />
           </GlassCard>
         )}
-
-
-        {/* Aufnahmen */}
-        <RecordingsList viewMode={isTeamlead ? viewMode : 'personal'} />
 
         {/* Modal für erschöpftes Kontingent */}
         <QuotaExhaustedModal 
