@@ -46,4 +46,3 @@ Der Code ist vollständig korrekt. Sobald ElevenLabs entsperrt ist, funktioniert
 - Transkription mit Sprechererkennung
 - Automatische KI-Analyse mit Key Points und Action Items
 - Follow-up E-Mail Generierung
-
