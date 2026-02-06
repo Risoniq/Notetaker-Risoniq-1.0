@@ -1,5 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { encode as base64Encode } from "https://deno.land/std@0.208.0/encoding/base64.ts";
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 // Dynamic CORS headers based on origin
 function getCorsHeaders(req: Request) {
@@ -170,7 +169,7 @@ async function fetchImageAsBase64(imageUrl: string): Promise<string | null> {
     
     const arrayBuffer = await response.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    const base64String = base64Encode(uint8Array);
+    const base64String = btoa(String.fromCharCode(...uint8Array));
     
     console.log(`[Image] Bild erfolgreich geladen und konvertiert (${base64String.length} chars)`);
     return base64String;

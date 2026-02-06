@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 // Dynamic CORS headers based on origin
 function getCorsHeaders(req: Request) {
@@ -62,7 +61,7 @@ async function isAdmin(userId: string): Promise<boolean> {
   return data !== null;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   // Handle CORS preflight
