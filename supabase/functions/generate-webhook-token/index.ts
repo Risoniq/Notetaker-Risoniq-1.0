@@ -41,7 +41,7 @@ async function generateSignature(payload: string, timestamp: string, secret: str
     .join('');
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   // Handle CORS preflight requests

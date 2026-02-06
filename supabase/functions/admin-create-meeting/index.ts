@@ -61,7 +61,7 @@ async function isAdmin(userId: string): Promise<boolean> {
   return data !== null;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   // Handle CORS preflight

@@ -71,7 +71,7 @@ async function verifySignature(
   return isValid;
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   
   // Handle CORS preflight requests
