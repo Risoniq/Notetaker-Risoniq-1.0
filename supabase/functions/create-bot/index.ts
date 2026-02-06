@@ -1,5 +1,4 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { encode as base64Encode } from "https://deno.land/std@0.208.0/encoding/base64.ts";
+import { createClient } from 'npm:@supabase/supabase-js@2';
 
 // Dynamic CORS headers based on origin
 function getCorsHeaders(req: Request) {
