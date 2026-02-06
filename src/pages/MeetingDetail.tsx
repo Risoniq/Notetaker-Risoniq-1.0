@@ -171,15 +171,34 @@ export default function MeetingDetail() {
 
     setIsSyncing(true);
     try {
-      const { data, error } = await withTokenRefresh(
-        () => supabase.functions.invoke('sync-recording', {
-          body: { id, force_resync: forceResync }
-        })
-      );
+      let data, error;
+      
+      // Für manuelle Uploads: analyze-transcript aufrufen
+      if (recording.source === 'manual') {
+        const result = await withTokenRefresh(
+          () => supabase.functions.invoke('analyze-transcript', {
+            body: { recording_id: id }
+          })
+        );
+        data = result.data;
+        error = result.error;
+      } else {
+        // Für Bot-Aufnahmen: sync-recording aufrufen
+        const result = await withTokenRefresh(
+          () => supabase.functions.invoke('sync-recording', {
+            body: { id, force_resync: forceResync }
+          })
+        );
+        data = result.data;
+        error = result.error;
+      }
 
       if (error) {
-        console.error('Sync error:', error);
-        toast.error("Synchronisierung fehlgeschlagen");
+        console.error('Sync/Analysis error:', error);
+        toast.error(recording.source === 'manual' 
+          ? "Analyse fehlgeschlagen" 
+          : "Synchronisierung fehlgeschlagen"
+        );
         return;
       }
 
@@ -194,14 +213,20 @@ export default function MeetingDetail() {
         setRecording(updatedRecording);
         
         if (forceResync) {
-          toast.success("Transkript und Teilnehmernamen wurden aktualisiert!");
+          toast.success(recording.source === 'manual'
+            ? "Analyse wurde erfolgreich aktualisiert!"
+            : "Transkript und Teilnehmernamen wurden aktualisiert!"
+          );
         } else if (updatedRecording.status === 'done' && recording.status !== 'done') {
           toast.success("Aufnahme erfolgreich verarbeitet!");
         }
       }
     } catch (error) {
       console.error('Error syncing recording:', error);
-      toast.error("Synchronisierung fehlgeschlagen");
+      toast.error(recording.source === 'manual'
+        ? "Analyse fehlgeschlagen"
+        : "Synchronisierung fehlgeschlagen"
+      );
     } finally {
       setIsSyncing(false);
     }
