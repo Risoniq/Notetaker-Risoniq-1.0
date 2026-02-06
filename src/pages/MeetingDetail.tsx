@@ -171,42 +171,83 @@ export default function MeetingDetail() {
 
     setIsSyncing(true);
     try {
-      let data, error;
+      // Frische Session holen für Auth-Header
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        // Session abgelaufen - versuche Refresh
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        if (refreshError || !refreshData.session) {
+          toast.error("Sitzung abgelaufen. Bitte melde dich erneut an.");
+          setIsSyncing(false);
+          return;
+        }
+      }
+      
+      const activeSession = session || (await supabase.auth.getSession()).data.session;
+      if (!activeSession) {
+        toast.error("Sitzung abgelaufen. Bitte melde dich erneut an.");
+        setIsSyncing(false);
+        return;
+      }
+
+      const authHeaders = { Authorization: `Bearer ${activeSession.access_token}` };
+      let invokeResult: { data: any; error: any };
       
       // Für manuelle Uploads: analyze-transcript aufrufen
       if (recording.source === 'manual') {
-        const result = await withTokenRefresh(
-          () => supabase.functions.invoke('analyze-transcript', {
-            body: { recording_id: id }
-          })
-        );
-        data = result.data;
-        error = result.error;
+        invokeResult = await supabase.functions.invoke('analyze-transcript', {
+          headers: authHeaders,
+          body: { recording_id: id }
+        });
       } else {
         // Für Bot-Aufnahmen: sync-recording aufrufen
-        const result = await withTokenRefresh(
-          () => supabase.functions.invoke('sync-recording', {
-            body: { id, force_resync: forceResync }
-          })
-        );
-        data = result.data;
-        error = result.error;
+        invokeResult = await supabase.functions.invoke('sync-recording', {
+          headers: authHeaders,
+          body: { id, force_resync: forceResync }
+        });
       }
 
-      if (error) {
-        console.error('Sync/Analysis error:', error);
-        toast.error(recording.source === 'manual' 
-          ? "Analyse fehlgeschlagen" 
-          : "Synchronisierung fehlgeschlagen"
-        );
-        return;
+      if (invokeResult.error) {
+        console.error('Sync/Analysis error:', invokeResult.error);
+        
+        // Bei 401: Session refreshen und nochmal versuchen
+        const errorContext = invokeResult.error?.context;
+        if (errorContext?.status === 401) {
+          console.log('Token expired during sync, refreshing...');
+          const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+          if (!refreshError && refreshData.session) {
+            const retryHeaders = { Authorization: `Bearer ${refreshData.session.access_token}` };
+            const retryResult = recording.source === 'manual'
+              ? await supabase.functions.invoke('analyze-transcript', { headers: retryHeaders, body: { recording_id: id } })
+              : await supabase.functions.invoke('sync-recording', { headers: retryHeaders, body: { id, force_resync: forceResync } });
+            
+            if (!retryResult.error) {
+              // Retry war erfolgreich, weiter mit Success-Flow
+              invokeResult = retryResult;
+            } else {
+              toast.error(recording.source === 'manual' 
+                ? "Analyse fehlgeschlagen" 
+                : "Synchronisierung fehlgeschlagen"
+              );
+              return;
+            }
+          } else {
+            toast.error("Sitzung abgelaufen. Bitte melde dich erneut an.");
+            return;
+          }
+        } else {
+          toast.error(recording.source === 'manual' 
+            ? "Analyse fehlgeschlagen" 
+            : "Synchronisierung fehlgeschlagen"
+          );
+          return;
+        }
       }
 
       // Refetch the recording to get updated data
       const updatedRecording = await fetchRecording();
       if (updatedRecording) {
         // Preserve local title if it was just updated by user (avoid race condition)
-        // Use lastUserEditedTitleRef as single source of truth for the user-edited title
         if (titleJustUpdatedRef.current && lastUserEditedTitleRef.current !== null) {
           updatedRecording.title = lastUserEditedTitleRef.current;
         }
