@@ -169,7 +169,7 @@ async function fetchImageAsBase64(imageUrl: string): Promise<string | null> {
     
     const arrayBuffer = await response.arrayBuffer();
     const uint8Array = new Uint8Array(arrayBuffer);
-    const base64String = base64Encode(uint8Array);
+    const base64String = btoa(String.fromCharCode(...uint8Array));
     
     console.log(`[Image] Bild erfolgreich geladen und konvertiert (${base64String.length} chars)`);
     return base64String;
