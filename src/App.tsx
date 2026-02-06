@@ -39,7 +39,7 @@ const App = () => (
           <Route path="/meeting/:id" element={<ProtectedRoute><MeetingDetail /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-          <Route path="/transcripts" element={<ProtectedRoute><Transcripts /></ProtectedRoute>} />
+          <Route path="/transcripts" element={<Navigate to="/recordings" replace />} />
           {/* OAuth callback must be reachable even if auth session refreshes during redirect */}
           <Route path="/calendar-callback" element={<CalendarCallback />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
