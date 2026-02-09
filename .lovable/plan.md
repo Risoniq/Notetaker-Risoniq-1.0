@@ -1,68 +1,66 @@
 
+## Bot-Avatar wird nicht ins Meeting uebernommen - Stack Overflow Fix
 
-## Transkripte in die Aufnahmen-Seite integrieren
+### Problem
 
-### Ziel
+Die Edge Function Logs zeigen den exakten Fehler:
 
-Die Transkript-Datenbank wird als zweiter Tab in die bestehende Aufnahmen-Seite (`/recordings`) integriert. Der separate Navigationspunkt "Transkripte" in der Sidebar entfaellt. Nutzer finden kuenftig alles an einem Ort.
-
-### Aufbau nach der Aenderung
-
-```text
-/recordings
-+-----------------------------------------------+
-| Aufnahmen                                      |
-| Alle deine Meeting-Aufnahmen und Transkripte   |
-|                                                |
-| [Aufnahmen]  [Transkripte]    [Meine / Team]   |
-|                                                |
-| --- Tab: Aufnahmen ---                         |
-| RecordingCard  RecordingCard  RecordingCard     |
-| RecordingCard  RecordingCard  ...               |
-|                                                |
-| --- Tab: Transkripte ---                       |
-| Suchleiste + Filter                            |
-| TranscriptCard                                 |
-| TranscriptCard                                 |
-| Pagination                                     |
-+-----------------------------------------------+
+```
+RangeError: Maximum call stack size exceeded
+  at fetchImageAsBase64 (create-bot/index.ts:154:38)
 ```
 
----
+Das Bild wird korrekt von der Storage-URL geladen, aber die Base64-Konvertierung auf Zeile 172 crasht:
 
-### Aenderungen im Detail
+```javascript
+const base64String = btoa(String.fromCharCode(...uint8Array));
+```
 
-#### 1. Recordings-Seite erweitern (`src/pages/Recordings.tsx`)
+Der Spread-Operator `...uint8Array` versucht, **jedes einzelne Byte** des Bildes als separates Funktionsargument zu uebergeben. Ein typisches JPEG (z.B. 200KB) hat 200.000 Bytes - JavaScript erlaubt aber nur ca. 65.000 Funktionsargumente. Der Call Stack laeuft ueber, die Funktion gibt `null` zurueck, und der Bot wird ohne Avatar erstellt.
 
-- Tabs-Komponente (Radix Tabs) mit zwei Tabs hinzufuegen:
-  - **"Aufnahmen"** -- zeigt die bestehende `RecordingsList`-Komponente (Karten-Grid)
-  - **"Transkripte"** -- zeigt die Transkript-Suche, Filter, `TranscriptCard`-Liste und Pagination (bisherige Logik aus `Transcripts.tsx`)
-- Der Team/Personal-Toggle bleibt oben rechts und wirkt auf beide Tabs
-- Die Transkript-Logik (Daten laden, filtern, paginieren, exportieren) wird in die Recordings-Seite uebernommen
+### Ursache
 
-#### 2. Sidebar aktualisieren (`src/components/layout/AppSidebar.tsx`)
+- **Datei**: `supabase/functions/create-bot/index.ts`, Zeile 172
+- **Fehlerhafte Zeile**: `btoa(String.fromCharCode(...uint8Array))`
+- **Problem**: Spread-Operator auf grossen Arrays verursacht Stack Overflow
 
-- Den Menue-Eintrag `{ title: "Transkripte", url: "/transcripts", icon: FileText }` entfernen
+### Loesung
 
-#### 3. Route beibehalten als Redirect (`src/App.tsx`)
+Die `fetchImageAsBase64`-Funktion wird so geaendert, dass das Bild in **8KB-Chunks** verarbeitet wird, statt alle Bytes auf einmal:
 
-- Die Route `/transcripts` wird zu `/recordings` weitergeleitet, damit bestehende Lesezeichen oder Links weiterhin funktionieren
+```text
+Vorher (crasht bei Bildern > ~65KB):
+  btoa(String.fromCharCode(...uint8Array))
 
-#### 4. Keine Aenderung an bestehenden Komponenten
+Nachher (funktioniert fuer beliebig grosse Bilder):
+  Schleife ueber 8KB-Bloecke -> String zusammenbauen -> btoa()
+```
 
-- `RecordingsList`, `RecordingCard`, `TranscriptCard`, `TranscriptSearch` bleiben unveraendert
-- Die gesamte Transkript-Logik (Suche, Filter, Pagination, Export) wird 1:1 in den neuen Tab uebernommen
-
----
-
-### Betroffene Dateien
+### Betroffene Datei
 
 | Datei | Aenderung |
 |---|---|
-| `src/pages/Recordings.tsx` | Tabs hinzufuegen, Transkript-Tab mit Suche/Filter/Liste/Pagination integrieren |
-| `src/components/layout/AppSidebar.tsx` | "Transkripte"-Eintrag aus dem Menue entfernen |
-| `src/App.tsx` | `/transcripts`-Route auf Redirect zu `/recordings` aendern |
+| `supabase/functions/create-bot/index.ts` | `fetchImageAsBase64`-Funktion: Chunked Base64-Konvertierung statt Spread-Operator |
 
-### Geschaetzter Aufwand
-- 3 Dateien, mittlerer Umfang (hauptsaechlich Recordings.tsx wird erweitert)
+### Technisches Detail
 
+Die neue Implementierung:
+
+```text
+function fetchImageAsBase64(imageUrl):
+  1. Bild per fetch() laden (unveraendert)
+  2. ArrayBuffer in Uint8Array konvertieren (unveraendert)
+  3. NEU: In 8192-Byte-Chunks durchlaufen
+     - Fuer jeden Chunk: Byte fuer Byte zu String konvertieren
+     - Kein Spread-Operator, kein Stack Overflow
+  4. btoa() auf den fertigen String anwenden
+```
+
+### Keine weiteren Aenderungen noetig
+
+- **Storage-Bucket**: `bot-avatars` ist oeffentlich (public = true) - korrekt
+- **Frontend**: Alle 3 Aufrufer (MeetingBot, QuickMeetingJoin, RecallUpcomingMeetings) senden `botAvatarUrl` korrekt
+- **DB-Speicherung**: Avatar-URL wird korrekt in `recall_calendar_users.bot_avatar_url` gespeichert
+- **Recall.ai-Config**: `automatic_video_output` mit `kind: "jpeg"` und `b64_data` ist korrekt konfiguriert
+
+Das einzige Problem ist die Base64-Konvertierung in der Edge Function.
