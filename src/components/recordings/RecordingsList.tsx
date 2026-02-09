@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Recording } from "@/types/recording";
@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 
 interface RecordingsListProps {
   viewMode?: 'personal' | 'team';
+  searchQuery?: string;
+  selectedMember?: string;
 }
 
 interface RecordingWithOwner extends Recording {
@@ -19,7 +21,7 @@ interface RecordingWithOwner extends Recording {
   is_own?: boolean;
 }
 
-export const RecordingsList = ({ viewMode = 'personal' }: RecordingsListProps) => {
+export const RecordingsList = ({ viewMode = 'personal', searchQuery = '', selectedMember = 'all' }: RecordingsListProps) => {
   const [recordings, setRecordings] = useState<RecordingWithOwner[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
@@ -116,6 +118,26 @@ export const RecordingsList = ({ viewMode = 'personal' }: RecordingsListProps) =
     }
   }, [isAdmin, isImpersonating, impersonatedUserId, isTeamlead, viewMode]);
 
+  const filteredRecordings = useMemo(() => {
+    let result = recordings;
+
+    if (selectedMember !== 'all') {
+      result = result.filter((r) => (r as any).user_id === selectedMember);
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (r) =>
+          r.title?.toLowerCase().includes(query) ||
+          r.transcript_text?.toLowerCase().includes(query) ||
+          r.summary?.toLowerCase().includes(query)
+      );
+    }
+
+    return result;
+  }, [recordings, searchQuery, selectedMember]);
+
   if (isLoading) {
     return (
       <div className="w-full">
@@ -129,18 +151,19 @@ export const RecordingsList = ({ viewMode = 'personal' }: RecordingsListProps) =
     );
   }
 
-  if (recordings.length === 0) {
+  if (filteredRecordings.length === 0) {
     return (
       <div className="w-full">
         <h2 className="text-xl font-semibold text-foreground mb-4">Aufnahmen</h2>
         <div className="flex flex-col items-center justify-center py-12 px-4 border border-dashed border-border rounded-xl bg-muted/30">
           <FolderOpen className="h-12 w-12 text-muted-foreground mb-3" />
           <p className="text-muted-foreground text-center">
-            {viewMode === 'team' 
-              ? 'Noch keine Team-Aufnahmen vorhanden.'
-              : 'Noch keine Aufnahmen vorhanden.'}
-            <br />
-            Starte deinen ersten Meeting-Bot oben.
+            {searchQuery.trim()
+              ? 'Keine Aufnahmen gefunden. Versuche andere Suchbegriffe.'
+              : viewMode === 'team' 
+                ? 'Noch keine Team-Aufnahmen vorhanden.'
+                : 'Noch keine Aufnahmen vorhanden.'}
+            {!searchQuery.trim() && <><br />Starte deinen ersten Meeting-Bot oben.</>}
           </p>
         </div>
       </div>
@@ -153,10 +176,10 @@ export const RecordingsList = ({ viewMode = 'personal' }: RecordingsListProps) =
     <div className="w-full">
       <h2 className="text-xl font-semibold text-foreground mb-4 flex items-center gap-2">
         {isTeamView && <Users className="h-5 w-5" />}
-        {isTeamView ? 'Team-Aufnahmen' : 'Aufnahmen'} ({recordings.length})
+        {isTeamView ? 'Team-Aufnahmen' : 'Aufnahmen'} ({filteredRecordings.length})
       </h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {recordings.map((recording) => (
+        {filteredRecordings.map((recording) => (
           <div key={recording.id} className="relative">
             {isTeamView && recording.owner_email && !recording.is_own && (
               <Badge 
