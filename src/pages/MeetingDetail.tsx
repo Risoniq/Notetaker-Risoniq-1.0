@@ -666,6 +666,9 @@ export default function MeetingDetail() {
             <p className="text-muted-foreground mt-1">
               {format(new Date(recording.created_at), "EEEE, dd. MMMM yyyy 'um' HH:mm 'Uhr'", { locale: de })}
             </p>
+            <div className="mt-2">
+              <ProjectAssignment recordingId={recording.id} />
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {/* Re-Sync Button für abgeschlossene Meetings */}
