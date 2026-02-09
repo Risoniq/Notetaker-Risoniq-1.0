@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { 
   LayoutDashboard, 
-  Calendar, 
   FileText, 
   Settings, 
   Shield, 
   LogOut,
-  Mic
+  Mic,
+  FolderKanban
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useAuth } from "@/hooks/useAuth";
@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 
 const menuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
+  { title: "Projekte", url: "/projects", icon: FolderKanban },
   { title: "Aufnahmen", url: "/recordings", icon: FileText },
   { title: "Einstellungen", url: "/settings", icon: Settings },
 ];
