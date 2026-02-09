@@ -118,6 +118,26 @@ export const RecordingsList = ({ viewMode = 'personal', searchQuery = '', select
     }
   }, [isAdmin, isImpersonating, impersonatedUserId, isTeamlead, viewMode]);
 
+  const filteredRecordings = useMemo(() => {
+    let result = recordings;
+
+    if (selectedMember !== 'all') {
+      result = result.filter((r) => (r as any).user_id === selectedMember);
+    }
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(
+        (r) =>
+          r.title?.toLowerCase().includes(query) ||
+          r.transcript_text?.toLowerCase().includes(query) ||
+          r.summary?.toLowerCase().includes(query)
+      );
+    }
+
+    return result;
+  }, [recordings, searchQuery, selectedMember]);
+
   if (isLoading) {
     return (
       <div className="w-full">
@@ -131,18 +151,19 @@ export const RecordingsList = ({ viewMode = 'personal', searchQuery = '', select
     );
   }
 
-  if (recordings.length === 0) {
+  if (filteredRecordings.length === 0) {
     return (
       <div className="w-full">
         <h2 className="text-xl font-semibold text-foreground mb-4">Aufnahmen</h2>
         <div className="flex flex-col items-center justify-center py-12 px-4 border border-dashed border-border rounded-xl bg-muted/30">
           <FolderOpen className="h-12 w-12 text-muted-foreground mb-3" />
           <p className="text-muted-foreground text-center">
-            {viewMode === 'team' 
-              ? 'Noch keine Team-Aufnahmen vorhanden.'
-              : 'Noch keine Aufnahmen vorhanden.'}
-            <br />
-            Starte deinen ersten Meeting-Bot oben.
+            {searchQuery.trim()
+              ? 'Keine Aufnahmen gefunden. Versuche andere Suchbegriffe.'
+              : viewMode === 'team' 
+                ? 'Noch keine Team-Aufnahmen vorhanden.'
+                : 'Noch keine Aufnahmen vorhanden.'}
+            {!searchQuery.trim() && <><br />Starte deinen ersten Meeting-Bot oben.</>}
           </p>
         </div>
       </div>
