@@ -44,6 +44,7 @@ const Recordings = () => {
   const { user } = useAuth();
   const [viewMode, setViewMode] = useState<'personal' | 'team'>('personal');
 
+  const [recordingsSearchQuery, setRecordingsSearchQuery] = useState("");
   // --- Transcript tab state ---
   const [recordings, setRecordings] = useState<RecordingWithOwner[]>([]);
   const [memberEmails, setMemberEmails] = useState<Map<string, string>>(new Map());
