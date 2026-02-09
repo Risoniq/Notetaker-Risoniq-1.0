@@ -44,6 +44,7 @@ import { getConsistentParticipantCount } from "@/utils/participantUtils";
 import { EmailEditModal } from "@/components/meeting/EmailEditModal";
 import { ReportDownloadModal } from "@/components/meeting/ReportDownloadModal";
 import { DeepDiveModal } from "@/components/meeting/DeepDiveModal";
+import { ProjectAssignment } from "@/components/meeting/ProjectAssignment";
 import { useAuth } from "@/hooks/useAuth";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
@@ -665,6 +666,9 @@ export default function MeetingDetail() {
             <p className="text-muted-foreground mt-1">
               {format(new Date(recording.created_at), "EEEE, dd. MMMM yyyy 'um' HH:mm 'Uhr'", { locale: de })}
             </p>
+            <div className="mt-2">
+              <ProjectAssignment recordingId={recording.id} />
+            </div>
           </div>
           <div className="flex items-center gap-3">
             {/* Re-Sync Button für abgeschlossene Meetings */}
