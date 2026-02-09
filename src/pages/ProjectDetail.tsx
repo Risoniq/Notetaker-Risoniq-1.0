@@ -37,6 +37,24 @@ export default function ProjectDetail() {
   });
 
   const { data: recordings, isLoading: recLoading } = useProjectRecordings(id);
+  const autoAnalyzeTriggered = useRef(false);
+
+  // Auto-trigger analysis when recordings exist but no analysis yet
+  useEffect(() => {
+    if (
+      !autoAnalyzeTriggered.current &&
+      !analyzing &&
+      !recLoading &&
+      !projectLoading &&
+      project &&
+      !project.analysis &&
+      recordings &&
+      recordings.length > 0
+    ) {
+      autoAnalyzeTriggered.current = true;
+      handleAnalyze();
+    }
+  }, [recordings, recLoading, projectLoading, project]);
 
   const handleAnalyze = async () => {
     if (!id) return;
