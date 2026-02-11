@@ -30,7 +30,8 @@ import {
   X,
   Replace,
   History,
-  Download
+  Download,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
@@ -106,6 +107,10 @@ export default function MeetingDetail() {
   
   // Video Transcription State
   const [isTranscribingVideo, setIsTranscribingVideo] = useState(false);
+  
+  // Soft-Delete State
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Auth für User-Email
   const { user } = useAuth();
@@ -755,6 +760,16 @@ export default function MeetingDetail() {
               {getStatusLabel(recording.status)}
               {isSyncing && <RefreshCw className="h-3 w-3 ml-1.5 animate-spin inline" />}
             </Badge>
+            {/* Löschen-Button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="shrink-0 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+              title="Meeting löschen"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
           </div>
         </div>
 
@@ -1495,6 +1510,46 @@ export default function MeetingDetail() {
               syncRecordingStatus(true);
             }}>
               Neu laden
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      
+      {/* Soft-Delete Bestätigungs-Dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Meeting löschen?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Das Meeting wird aus deinem Dashboard entfernt. 
+              Ein Administrator kann es bei Bedarf wiederherstellen.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Abbrechen</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                setIsDeleting(true);
+                try {
+                  const { error } = await supabase
+                    .from('recordings')
+                    .update({ deleted_at: new Date().toISOString() } as any)
+                    .eq('id', recording.id);
+                  if (error) throw error;
+                  toast.success("Meeting gelöscht");
+                  navigate('/');
+                } catch (err) {
+                  console.error('Soft-delete error:', err);
+                  toast.error("Löschen fehlgeschlagen");
+                } finally {
+                  setIsDeleting(false);
+                  setShowDeleteConfirm(false);
+                }
+              }}
+            >
+              {isDeleting ? 'Lösche...' : 'Löschen'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

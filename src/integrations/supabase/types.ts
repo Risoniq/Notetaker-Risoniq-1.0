@@ -169,6 +169,7 @@ export type Database = {
           action_items: string[] | null
           calendar_attendees: Json | null
           created_at: string
+          deleted_at: string | null
           duration: number | null
           id: string
           key_points: string[] | null
@@ -191,6 +192,7 @@ export type Database = {
           action_items?: string[] | null
           calendar_attendees?: Json | null
           created_at?: string
+          deleted_at?: string | null
           duration?: number | null
           id?: string
           key_points?: string[] | null
@@ -213,6 +215,7 @@ export type Database = {
           action_items?: string[] | null
           calendar_attendees?: Json | null
           created_at?: string
+          deleted_at?: string | null
           duration?: number | null
           id?: string
           key_points?: string[] | null

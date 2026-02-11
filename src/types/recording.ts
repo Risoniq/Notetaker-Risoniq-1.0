@@ -22,6 +22,7 @@ export interface Recording {
   word_count: number | null;
   participants: RecordingParticipant[] | null;
   source: string | null;
+  deleted_at: string | null;
 }
 
 export type RecordingStatus = 'pending' | 'joining' | 'recording' | 'processing' | 'done' | 'error' | 'timeout';
