@@ -140,12 +140,12 @@ Deno.serve(async (req) => {
 
       const authData = await authResponse.json();
 
-      // Get meetings including those that started up to 2 hours ago (for ongoing meetings)
-      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-      console.log('[list] Fetching meetings since:', twoHoursAgo);
+      // Get meetings including those that started up to 24 hours ago (ensures late-opened tabs still capture meetings)
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      console.log('[list] Fetching meetings since:', twentyFourHoursAgo);
       
       const meetingsResponse = await fetch(
-        `https://eu-central-1.recall.ai/api/v1/calendar/meetings/?user_id=${recallUserId}&start_time__gte=${twoHoursAgo}`,
+        `https://eu-central-1.recall.ai/api/v1/calendar/meetings/?user_id=${recallUserId}&start_time__gte=${twentyFourHoursAgo}`,
         {
           method: 'GET',
           headers: {
