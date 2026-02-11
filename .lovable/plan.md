@@ -1,46 +1,35 @@
 
 
-## Fix: Stuck "transcribing" Recordings reparierbar machen
+## Fix: Hängende "Stellantis GAV" Transkription reparieren
 
-### Problem
-Das Recording haengt im Status "transcribing" fest. Die UI zeigt fuer diesen Status weder den "Transkript neu laden"-Button noch den "Aktualisieren"-Button an, weil:
-- "Transkript neu laden" nur bei `status === 'done'` erscheint
-- "Aktualisieren" nur bei `['pending', 'joining', 'recording', 'processing']` erscheint
+### Ursache des Problems
 
-Der Status "transcribing" faellt durch beide Bedingungen.
+Das Recording (79 Minuten, source: bot) wurde irgendwann ueber die "Video transkribieren"-Funktion (`transcribe-video`) verarbeitet. Diese setzt den Status auf `'transcribing'` und startet die ElevenLabs-Transkription im Hintergrund. Bei einem 79-Minuten-Video ist die Datei zu gross -- die Background-Funktion wurde durch `WORKER_LIMIT` (zu wenig Ressourcen) abgebrochen, bevor der `catch`-Block den Status auf `'error'` zuruecksetzen konnte. Das Recording haengt jetzt dauerhaft im Status `'transcribing'` ohne Transkript.
 
-### Loesung
+### Loesung (2 Schritte)
 
-**Datei: `src/pages/MeetingDetail.tsx`**
+**Schritt 1: Sofort-Fix -- sync-recording auslösen**
 
-1. Den Status `'transcribing'` zur Liste der aktualisierbaren Status hinzufuegen (Zeile 747), sodass der "Aktualisieren"-Button auch bei haengenden Transkriptionen erscheint
-2. Alternativ (oder zusaetzlich): Den "Transkript neu laden"-Button auch fuer `'transcribing'` und `'error'` Status anzeigen, damit der User eine vollstaendige Neu-Synchronisation ausloesen kann
+Da das Recording eine `recall_bot_id` hat (source: bot), kann `sync-recording` den echten Status bei Recall.ai abfragen und das Transkript von dort herunterladen -- unabhaengig vom aktuellen DB-Status. Mit dem gerade deployten UI-Fix (der "Transkript neu laden"-Button ist jetzt auch bei Status `'transcribing'` sichtbar) kann der Button geklickt werden, um die Daten von Recall.ai neu zu laden.
 
-### Konkrete Aenderung
+Falls der Button nicht funktioniert oder der Recall.ai-Bot noch nicht fertig ist, setzen wir den Status direkt per SQL auf `'done'` zurueck und triggern sync-recording mit `force_resync`.
 
-In Zeile 747 wird die Status-Liste erweitert:
+**Schritt 2: Code-Fix -- transcribe-video robuster machen**
 
-```
-// Vorher:
-{['pending', 'joining', 'recording', 'processing'].includes(recording.status) && (
+Das `transcribe-video` Edge Function muss gegen WORKER_LIMIT-Abstuerze abgesichert werden:
 
-// Nachher:
-{['pending', 'joining', 'recording', 'processing', 'transcribing'].includes(recording.status) && (
-```
+1. **Vor dem Start** den aktuellen Status in der DB merken, damit bei einem Absturz der alte Status wiederhergestellt werden kann
+2. **Timeout-Schutz**: Fuer Bot-Recordings mit Video ueber 60 Minuten eine Warnung ausgeben oder die Verarbeitung ablehnen, da die Edge Function das nicht in der verfuegbaren Zeit schafft
+3. **Status-Reset bei Fehler**: Sicherstellen, dass der `catch`-Block auch bei WORKER_LIMIT-Fehlern ausgefuehrt wird (was bei harten Kills nicht moeglich ist), daher alternativ: Den Status erst auf `'transcribing'` setzen, nachdem der Video-Download erfolgreich war
 
-Zusaetzlich wird der "Transkript neu laden"-Button auch fuer fehlgeschlagene/haengende Status angezeigt:
+### Technische Details
 
-```
-// Vorher:
-{recording.status === 'done' && (
+| Datei | Aenderung |
+|---|---|
+| `supabase/functions/transcribe-video/index.ts` | Groessenprüfung hinzufuegen: Videos ueber ~500MB oder Recordings mit duration > 3600s ablehnen mit Fehlermeldung. Status erst nach erfolgreichem Download setzen. |
+| `src/pages/MeetingDetail.tsx` | "Video transkribieren"-Button nur anzeigen, wenn duration < 3600 oder eine Warnung anzeigen bei langen Meetings |
 
-// Nachher:
-{['done', 'error', 'transcribing'].includes(recording.status) && (
-```
+### Sofort-Massnahme
 
-Damit kann der User bei haengenden Transkriptionen sowohl schnell aktualisieren als auch eine vollstaendige Neu-Synchronisation ausloesen.
-
-### Sofort-Fix fuer das aktuelle Recording
-
-Nach dem Code-Update kann der User auf "Aktualisieren" oder "Transkript neu laden" klicken, was die sync-recording Edge Function aufruft und den korrekten Status von Recall.ai abruft.
+Das aktuelle Recording wird durch Aufruf von `sync-recording` mit `force_resync: true` repariert. Falls Recall.ai das Transkript bereithaelt, wird es heruntergeladen und der Status auf `'done'` gesetzt.
 
