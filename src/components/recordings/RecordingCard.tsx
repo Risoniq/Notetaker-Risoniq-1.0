@@ -2,16 +2,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Recording, getStatusLabel, getStatusColor } from "@/types/recording";
-import { Calendar, Clock, FileText, Target, CheckSquare, Loader2, Upload } from "lucide-react";
+import { Calendar, Clock, FileText, Target, CheckSquare, Loader2, Upload, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 
 interface RecordingCardProps {
   recording: Recording;
   onClick: () => void;
+  isDeleted?: boolean;
+  onRestore?: (id: string) => void;
 }
 
-export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
+export const RecordingCard = ({ recording, onClick, isDeleted, onRestore }: RecordingCardProps) => {
   const formattedDate = format(new Date(recording.created_at), "dd. MMM yyyy, HH:mm", { locale: de });
   const duration = recording.duration ? `${Math.floor(recording.duration / 60)} Min` : null;
   
@@ -31,10 +33,25 @@ export const RecordingCard = ({ recording, onClick }: RecordingCardProps) => {
   
   return (
     <Card 
-      className="cursor-pointer transition-all hover:shadow-lg hover:border-primary/50 hover:-translate-y-1"
+      className={`cursor-pointer transition-all hover:shadow-lg hover:-translate-y-1 ${isDeleted ? 'border-2 border-red-500 opacity-75' : 'hover:border-primary/50'}`}
       onClick={onClick}
     >
       <CardContent className="p-5">
+        {isDeleted && recording.deleted_at && (
+          <div className="flex items-center justify-between mb-3 text-sm">
+            <Badge variant="destructive" className="text-xs">
+              Gelöscht am {format(new Date(recording.deleted_at), "dd.MM.yyyy, HH:mm", { locale: de })}
+            </Badge>
+            {onRestore && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRestore(recording.id); }}
+                className="flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <RotateCcw className="h-3 w-3" /> Wiederherstellen
+              </button>
+            )}
+          </div>
+        )}
         <div className="flex flex-col gap-3">
           {/* Header */}
           <div className="flex items-start justify-between gap-2">
