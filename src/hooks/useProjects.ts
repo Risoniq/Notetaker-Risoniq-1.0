@@ -14,6 +14,8 @@ export interface Project {
   created_at: string;
   updated_at: string;
   recording_count?: number;
+  membership_status?: "owner" | "pending" | "joined";
+  membership_id?: string;
 }
 
 export function useProjects() {
@@ -23,6 +25,7 @@ export function useProjects() {
   const projectsQuery = useQuery({
     queryKey: ["projects", user?.id],
     queryFn: async () => {
+      // Fetch own projects
       const { data, error } = await supabase
         .from("projects")
         .select("*")
@@ -40,10 +43,27 @@ export function useProjects() {
         countMap[r.project_id] = (countMap[r.project_id] || 0) + 1;
       });
 
-      return (data as Project[]).map((p) => ({
-        ...p,
-        recording_count: countMap[p.id] || 0,
-      }));
+      // Get memberships for this user (pending + joined)
+      const { data: memberships } = await supabase
+        .from("project_members" as any)
+        .select("id, project_id, status")
+        .eq("user_id", user!.id);
+
+      const membershipMap = new Map<string, { status: string; id: string }>();
+      (memberships ?? []).forEach((m: any) => {
+        membershipMap.set(m.project_id, { status: m.status, id: m.id });
+      });
+
+      return (data as any[]).map((p) => {
+        const mem = membershipMap.get(p.id);
+        const isOwner = p.user_id === user!.id;
+        return {
+          ...p,
+          recording_count: countMap[p.id] || 0,
+          membership_status: isOwner ? "owner" : (mem?.status as "pending" | "joined") ?? "owner",
+          membership_id: mem?.id,
+        } as Project;
+      });
     },
     enabled: !!user,
   });
@@ -119,6 +139,21 @@ export function useProjects() {
     onError: (e: any) => toast.error(e.message),
   });
 
+  const joinProject = useMutation({
+    mutationFn: async (membershipId: string) => {
+      const { error } = await supabase
+        .from("project_members" as any)
+        .update({ status: "joined" })
+        .eq("id", membershipId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      toast.success("Projekt beigetreten");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
   return {
     projects: projectsQuery.data ?? [],
     isLoading: projectsQuery.isLoading,
@@ -127,6 +162,7 @@ export function useProjects() {
     deleteProject,
     assignRecording,
     removeRecording,
+    joinProject,
   };
 }
 
