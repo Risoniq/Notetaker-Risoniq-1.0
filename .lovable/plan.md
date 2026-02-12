@@ -1,59 +1,46 @@
 
 
-## Problem
+## Recall.ai Bot-Diagnose fuer zwei Bot-IDs
 
-Der "Recall Transkript erstellen" Button crasht mit dem Fehler `400: Keine Aufnahmen beim Recall Bot gefunden`, weil der Recall.ai Bot keine Aufnahmen hat. Die bisherigen Frontend-Fixes haben nicht funktioniert, weil `supabase.functions.invoke` bei HTTP 400 den Response-Body nicht im `data`-Feld zurueckgibt -- er ist `null`. Die Fehlermeldung im `error`-Objekt ist generisch ("non-2xx status code") und enthaelt nicht den eigentlichen Text.
+### Ausgangslage
 
-## Loesung
+- **Bot `b65530f7-...`**: Existiert in der Datenbank (Recording `8ef3df81-...`, Titel "AH Lambeck Sven Krause Teil 1", Status "done"), aber ohne Video-URL und ohne Transkript.
+- **Bot `aed63db5-...`**: Existiert NICHT in der Datenbank. Kein Recording-Eintrag vorhanden.
 
-Das Problem muss an **zwei Stellen** behoben werden:
+Der User moechte pruefen, ob bei Recall.ai noch Daten (Video, Transkript, Aufnahmen) fuer diese Bots vorhanden sind.
 
-### 1. Edge Function: Fehler als 200 mit Error-Flag zurueckgeben
+### Loesung: Diagnose-Edge-Function erstellen
 
-**Datei:** `supabase/functions/recall-transcribe/index.ts` (Zeile 109-114)
+Da wir den RECALL_API_KEY nur serverseitig nutzen koennen, wird eine neue Edge Function `recall-bot-check` erstellt, die fuer eine gegebene Bot-ID die Recall.ai API abfragt und alle verfuegbaren Daten zurueckgibt.
 
-Statt HTTP 400 wird ein HTTP 200 mit `{ success: false, error: "..." }` zurueckgegeben. So kann das Frontend den Fehler sauber aus `data` lesen.
+### Neue Datei: `supabase/functions/recall-bot-check/index.ts`
 
-```typescript
-// Vorher:
-if (!botData.recordings || botData.recordings.length === 0) {
-  return new Response(JSON.stringify({ error: "Keine Aufnahmen beim Recall Bot gefunden" }), {
-    status: 400, ...
-  });
-}
+Die Funktion:
+1. Nimmt eine `bot_id` entgegen (authentifiziert, nur fuer Admins)
+2. Ruft `GET https://eu-central-1.recall.ai/api/v1/bot/{bot_id}/` auf
+3. Gibt die vollstaendigen Bot-Daten zurueck: Status, Recordings, Video-URLs, Transkript-URLs, Teilnehmer
 
-// Nachher:
-if (!botData.recordings || botData.recordings.length === 0) {
-  return new Response(JSON.stringify({ success: false, error: "Keine Aufnahmen beim Recall Bot gefunden" }), {
-    status: 200, ...
-  });
-}
+```
+POST /recall-bot-check
+Body: { "bot_id": "b65530f7-..." }
+Response: { bot_data: { status_changes, recordings, meeting_participants, ... } }
 ```
 
-### 2. Frontend: data.error pruefen
+### Ablauf nach Erstellung
 
-**Datei:** `src/pages/MeetingDetail.tsx` (Zeile 749-757)
+1. Edge Function deployen
+2. Beide Bot-IDs nacheinander abfragen
+3. Ergebnisse auswerten:
+   - Gibt es Recordings/Videos beim Recall Bot?
+   - Sind die Medien abgelaufen (media_expired)?
+   - Gibt es Transkript-Daten?
+4. Falls Daten vorhanden: sync-recording ausfuehren oder fehlenden DB-Eintrag erstellen
+5. Falls keine Daten: dem User mitteilen, dass die Aufnahmen bei Recall.ai nicht mehr verfuegbar sind
 
-Nach `supabase.functions.invoke` wird zusaetzlich `data?.error` geprueft (jetzt funktioniert es, weil die Edge Function 200 zurueckgibt):
+### Technische Details
 
-```typescript
-if (error) throw error;
-if (data?.error) {
-  if (data.error.includes('Keine Aufnahmen')) {
-    toast.error("Dieser Bot hat keine Aufnahmen erzeugt. Ein Transkript kann nicht erstellt werden.");
-  } else {
-    toast.error(data.error);
-  }
-  setIsRecallTranscribing(false);
-  return;
-}
-```
-
-Der `catch`-Block bleibt als Fallback fuer echte Netzwerk-/Serverfehler bestehen, wird aber vereinfacht.
-
-### Zusammenfassung
-
-- Root Cause: `supabase.functions.invoke` gibt bei HTTP 400 `data: null` zurueck, daher war der Fehlertext nie lesbar
-- Fix: Edge Function gibt 200 mit `success: false` zurueck, Frontend liest `data.error` zuverlaessig
-- Kein Crash, keine Blank-Screen mehr -- stattdessen eine benutzerfreundliche Toast-Meldung
+- Authentifizierung: Admin-only (ueber `has_role` Check)
+- API-Endpunkt: `https://eu-central-1.recall.ai/api/v1/bot/{bot_id}/`
+- Header: `Authorization: Token {RECALL_API_KEY}`
+- Zusaetzlich wird `/calendar/meetings/?bot_id={bot_id}` abgefragt, um Kalender-Zuordnung zu pruefen
 
