@@ -6,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FolderKanban } from "lucide-react";
 
 export default function Projects() {
-  const { projects, isLoading, deleteProject } = useProjects();
+  const { projects, isLoading, deleteProject, joinProject } = useProjects();
 
   return (
     <AppLayout>
@@ -34,7 +34,12 @@ export default function Projects() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {projects.map((p) => (
-              <ProjectCard key={p.id} project={p} onDelete={(id) => deleteProject.mutate(id)} />
+              <ProjectCard
+                key={p.id}
+                project={p}
+                onDelete={(id) => deleteProject.mutate(id)}
+                onJoin={(membershipId) => joinProject.mutate(membershipId)}
+              />
             ))}
           </div>
         )}
