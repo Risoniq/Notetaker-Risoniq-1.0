@@ -1,68 +1,77 @@
 
 
-## Automatische Transkript-Sicherstellung fuer alle Meetings
+## Luecke gefunden: Desktop SDK Webhook loest keine Transkription/Analyse aus
 
-### Aktueller Stand
+### Befund
 
-| Pfad | Transkription | DB-Speicherung | Storage-Backup | Export |
-|---|---|---|---|---|
-| Bot (automatisch) | Recall.ai Streaming | Ja | Ja | Ja |
-| Manueller Upload | ElevenLabs (scribe_v2) | Ja | Ja | Ja |
+Alle Pfade wurden geprueft. Bei 5 von 6 Pfaden landen Transkripte korrekt in der Analyse-Pipeline:
 
-Beide Pfade speichern bereits korrekt eine Kopie in der Datenbank UND im Storage-Bucket "transcript-backups".
+| Pfad | Transkript | Analyse | Status |
+|---|---|---|---|
+| Bot-Meeting (sync-recording) | Recall.ai Streaming | Ja, automatisch | OK |
+| Bot-Fallback (kein Streaming) | Recall.ai Async, naechster sync holt ab | Ja, automatisch | OK |
+| Manueller Button (recall-transcribe) | Recall.ai Async, naechster sync holt ab | Ja, beim naechsten sync | OK |
+| Manueller Upload (transcribe-audio) | ElevenLabs scribe_v2 | Ja, automatisch | OK |
+| API Import (api-import-transcript) | Externer Text | Nur wenn run_analysis=true | OK (by design) |
+| **Desktop SDK (desktop-sdk-webhook)** | **Keins** | **Nein** | **LUECKE** |
 
-### Problem
+### Problem: desktop-sdk-webhook
 
-Wenn ein Bot-Meeting abgeschlossen ist (status: "done") aber **kein Streaming-Transkript** generiert wurde (transcript = null, wie beim Stellantis GAV Meeting), bleibt das Recording ohne Transkript. Der User muss manuell den "Recall Transkript erstellen"-Button klicken.
+Die Edge Function `desktop-sdk-webhook` empfaengt das Event `sdk_upload.complete` von Recall.ai, speichert die Recording-Metadaten (Video-URL, Audio-URL) in der Datenbank mit `status: "done"`, aber:
 
-### Loesung: Automatischer Recall-Transkriptions-Fallback
+1. Laedt **kein Transkript** von Recall.ai herunter
+2. Ruft **nicht** `sync-recording` auf, um Transkript + Analyse zu starten
+3. Ruft **nicht** `analyze-transcript` auf
 
-Wenn `sync-recording` ein fertiges Meeting (status "done") verarbeitet und **kein Transkript** von Recall.ai heruntergeladen werden kann, wird automatisch die Recall.ai Async Transcription API aufgerufen -- genau wie der manuelle "Recall Transkript erstellen"-Button, aber ohne User-Eingriff.
+Das Ergebnis: Desktop-SDK-Aufnahmen landen in der DB ohne Transkript und ohne KI-Analyse.
+
+### Loesung
+
+Nach dem erfolgreichen Speichern der Recording-Daten in der Datenbank wird `sync-recording` aufgerufen (analog zum Calendar-Auto-Ingest). Alternativ, falls die Desktop-SDK-Recordings keinen Recall-Bot haben, wird direkt die Recall.ai Transcript API abgefragt und danach `analyze-transcript` aufgerufen.
 
 ### Technische Aenderung
 
 | Datei | Aenderung |
 |---|---|
-| `supabase/functions/sync-recording/index.ts` | Nach dem Transkript-Download-Versuch (Zeile ~721): Wenn kein Transkript gefunden wurde UND der Bot mindestens ein Recording hat, automatisch `recall-transcribe` aufrufen. Status auf "transcribing" setzen statt "done". |
+| `supabase/functions/desktop-sdk-webhook/index.ts` | Nach dem erfolgreichen DB-Upsert: (1) Transkript von Recall.ai `media_shortcuts.transcript` abrufen, (2) in DB speichern, (3) `analyze-transcript` Edge Function aufrufen. Falls kein Transkript vorhanden, automatisch `create_transcript` mit `recallai_async` aufrufen und Status auf `transcribing` setzen. |
 
-### Ablauf nach der Aenderung
+### Detaillierter Ablauf nach der Aenderung
 
 ```text
-Bot-Meeting endet
+desktop-sdk-webhook empfaengt sdk_upload.complete
        |
-  sync-recording
+  Recording in DB speichern (wie bisher)
        |
   Transkript von Recall.ai abrufen
+  (media_shortcuts.transcript)
        |
    +---+---+
    |       |
 Transkript  Kein Transkript
 vorhanden   vorhanden
    |           |
-Normal      Automatisch recall-transcribe
-weiter      aufrufen (Async Transcription)
+In DB         Recall.ai Async Transcription
+speichern     aufrufen (recallai_async, "de")
    |           |
-Analyse +   Status = "transcribing"
-Backup +       |
-Export      Naechster sync-recording-Aufruf
-            holt fertiges Transkript ab
+analyze-    Status = "transcribing"
+transcript  (naechster sync holt Transkript)
+aufrufen
+   |
+Backup in Storage
+   |
+Export an externe API
 ```
 
-### Detaillierter Code-Eingriff
+### Code-Aenderungen im Detail
 
-In `sync-recording/index.ts`, nach Zeile ~721 (wo "Keine Transkript-URL in media_shortcuts gefunden" geloggt wird), wird folgender Block eingefuegt:
+Im `sdk_upload.complete`-Handler nach dem DB-Upsert (nach Zeile ~93):
 
-1. Pruefen ob `botData.recordings` mindestens einen Eintrag hat
-2. Die Recall Recording ID aus `botData.recordings[0].id` extrahieren
-3. `POST /api/v1/recording/{ID}/create_transcript/` mit Provider `recallai_async` und `language_code: "de"` aufrufen
-4. Status auf `"transcribing"` setzen (ueberschreibt `"done"`)
-5. Loggen dass automatische Recall-Transkription gestartet wurde
+1. Transkript-URL aus `recording.media_shortcuts.transcript` pruefen
+2. Falls vorhanden: Transkript herunterladen, formatieren, mit Meeting-Info-Header versehen, in DB aktualisieren
+3. Storage-Backup erstellen (analog zu sync-recording und transcribe-audio)
+4. `analyze-transcript` Edge Function aufrufen
+5. Externen Export ausfuehren (TRANSCRIPT_EXPORT_URL)
+6. Falls kein Transkript: `create_transcript` API aufrufen und Status auf `transcribing` setzen
 
-Der naechste Aufruf von sync-recording (entweder automatisch oder manuell ueber "Transkript neu laden") wird dann das fertige Transkript ueber die regulaere `media_shortcuts.transcript` URL abrufen.
-
-### Keine Aenderungen noetig fuer
-
-- **Manuelle Uploads**: Verwenden weiterhin ElevenLabs (bestaetigt) und speichern korrekt in DB + Storage
-- **recall-transcribe Edge Function**: Bleibt als manueller Fallback-Button verfuegbar
-- **Transcript-Backup und Export**: Beide laufen automatisch sobald ein Transkript in der DB ist
+Damit werden alle Desktop-SDK-Aufnahmen genauso behandelt wie Bot-Meetings und manuelle Uploads.
 
