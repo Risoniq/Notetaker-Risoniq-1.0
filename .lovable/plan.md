@@ -1,48 +1,68 @@
 
 
-## Recall.ai Async Transcription fuer haengende Recordings
+## Automatische Transkript-Sicherstellung fuer alle Meetings
 
-### Was wird gebaut
+### Aktueller Stand
 
-Eine neue Funktion, die das Transkript direkt ueber Recall.ai erstellen laesst (nicht ElevenLabs), indem die Recall.ai **Async Transcription API** aufgerufen wird. Dies funktioniert fuer alle Bot-Recordings, bei denen das Streaming-Transkript waehrend des Meetings nicht erstellt wurde.
+| Pfad | Transkription | DB-Speicherung | Storage-Backup | Export |
+|---|---|---|---|---|
+| Bot (automatisch) | Recall.ai Streaming | Ja | Ja | Ja |
+| Manueller Upload | ElevenLabs (scribe_v2) | Ja | Ja | Ja |
 
-### Wie es funktioniert
+Beide Pfade speichern bereits korrekt eine Kopie in der Datenbank UND im Storage-Bucket "transcript-backups".
 
-1. Der User klickt auf einen neuen Button "Recall Transkript erstellen" auf der Meeting-Detail-Seite
-2. Eine neue Edge Function ruft die Recall.ai API auf: `POST /api/v1/recording/{RECORDING_ID}/create_transcript/`
-3. Recall.ai transkribiert das vorhandene Video asynchron (ca. 1 Minute pro Stunde Meeting)
-4. Nach Abschluss kann der User ueber "Transkript neu laden" (sync-recording) das fertige Transkript abrufen
+### Problem
 
-### Technische Details
+Wenn ein Bot-Meeting abgeschlossen ist (status: "done") aber **kein Streaming-Transkript** generiert wurde (transcript = null, wie beim Stellantis GAV Meeting), bleibt das Recording ohne Transkript. Der User muss manuell den "Recall Transkript erstellen"-Button klicken.
+
+### Loesung: Automatischer Recall-Transkriptions-Fallback
+
+Wenn `sync-recording` ein fertiges Meeting (status "done") verarbeitet und **kein Transkript** von Recall.ai heruntergeladen werden kann, wird automatisch die Recall.ai Async Transcription API aufgerufen -- genau wie der manuelle "Recall Transkript erstellen"-Button, aber ohne User-Eingriff.
+
+### Technische Aenderung
 
 | Datei | Aenderung |
 |---|---|
-| `supabase/functions/recall-transcribe/index.ts` | **Neue Edge Function**: Nimmt eine `recording_id` entgegen, liest die `recall_bot_id` aus der DB, fragt die Recall.ai Bot-Daten ab um die Recording-ID zu ermitteln, und ruft dann `POST /api/v1/recording/{RECORDING_ID}/create_transcript/` mit Provider `recallai_async` und `language_code: "deu"` auf. Setzt den DB-Status auf `transcribing`. |
-| `supabase/config.toml` | Neuen Eintrag `[functions.recall-transcribe]` mit `verify_jwt = false` hinzufuegen |
-| `src/pages/MeetingDetail.tsx` | Neuen Button "Recall Transkript erstellen" hinzufuegen, sichtbar wenn: source === 'bot', kein Transkript vorhanden, recall_bot_id vorhanden. Ruft die neue Edge Function auf. |
-| `supabase/functions/sync-recording/index.ts` | Keine Aenderung noetig -- sync-recording holt bereits das Transkript von `media_shortcuts.transcript`, sobald Recall.ai es fertig hat. |
+| `supabase/functions/sync-recording/index.ts` | Nach dem Transkript-Download-Versuch (Zeile ~721): Wenn kein Transkript gefunden wurde UND der Bot mindestens ein Recording hat, automatisch `recall-transcribe` aufrufen. Status auf "transcribing" setzen statt "done". |
 
-### API-Aufruf an Recall.ai
+### Ablauf nach der Aenderung
 
 ```text
-POST https://eu-central-1.recall.ai/api/v1/recording/{RECALL_RECORDING_ID}/create_transcript/
-Authorization: Token {RECALL_API_KEY}
-Content-Type: application/json
-
-{
-  "provider": {
-    "recallai_async": {
-      "language_code": "deu"
-    }
-  }
-}
+Bot-Meeting endet
+       |
+  sync-recording
+       |
+  Transkript von Recall.ai abrufen
+       |
+   +---+---+
+   |       |
+Transkript  Kein Transkript
+vorhanden   vorhanden
+   |           |
+Normal      Automatisch recall-transcribe
+weiter      aufrufen (Async Transcription)
+   |           |
+Analyse +   Status = "transcribing"
+Backup +       |
+Export      Naechster sync-recording-Aufruf
+            holt fertiges Transkript ab
 ```
 
-Wichtig: Die `RECALL_RECORDING_ID` ist NICHT die `recall_bot_id`, sondern die ID aus `botData.recordings[0].id`. Die Edge Function muss zuerst den Bot abfragen, um diese ID zu ermitteln.
+### Detaillierter Code-Eingriff
 
-### Ablauf fuer den User
+In `sync-recording/index.ts`, nach Zeile ~721 (wo "Keine Transkript-URL in media_shortcuts gefunden" geloggt wird), wird folgender Block eingefuegt:
 
-1. Meeting-Detail oeffnen (Stellantis GAV)
-2. Button "Recall Transkript erstellen" klicken
-3. Warten (ca. 1-2 Minuten fuer 79 Min Meeting)
-4. "Transkript neu laden" klicken um das fertige Transkript abzuholen
+1. Pruefen ob `botData.recordings` mindestens einen Eintrag hat
+2. Die Recall Recording ID aus `botData.recordings[0].id` extrahieren
+3. `POST /api/v1/recording/{ID}/create_transcript/` mit Provider `recallai_async` und `language_code: "de"` aufrufen
+4. Status auf `"transcribing"` setzen (ueberschreibt `"done"`)
+5. Loggen dass automatische Recall-Transkription gestartet wurde
+
+Der naechste Aufruf von sync-recording (entweder automatisch oder manuell ueber "Transkript neu laden") wird dann das fertige Transkript ueber die regulaere `media_shortcuts.transcript` URL abrufen.
+
+### Keine Aenderungen noetig fuer
+
+- **Manuelle Uploads**: Verwenden weiterhin ElevenLabs (bestaetigt) und speichern korrekt in DB + Storage
+- **recall-transcribe Edge Function**: Bleibt als manueller Fallback-Button verfuegbar
+- **Transcript-Backup und Export**: Beide laufen automatisch sobald ein Transkript in der DB ist
+
