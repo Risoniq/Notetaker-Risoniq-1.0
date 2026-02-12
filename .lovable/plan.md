@@ -1,112 +1,103 @@
 
+## Multi-Team-Mitgliedschaft und klare Menustruktur
 
-## Meetings zwischen Usern teilen und Teamlead-Verwaltung
+### Ueberblick
 
-### Bestandsaufnahme
+Aktuell kann ein User nur in EINEM Team sein. Das wird erweitert, sodass User in mehreren Teams Mitglied und/oder Teamlead sein koennen. Die Admin-Seite und das Dashboard erhalten eine klarere Struktur.
 
-Die Teamlead-Funktion existiert bereits vollstaendig:
-- Admins koennen im Team-Mitglieder-Dialog die Rolle "Teamlead" vergeben
-- Teamleads sehen alle Meetings ihres Teams ueber die RLS-Policy "Teamleads can view team recordings"
-- Toggle zwischen "Meine Meetings" und "Team-Meetings" in der Recordings- und Transkript-Ansicht
+### 1. Datenbank-Aenderungen
 
-### Neue Funktion: Meetings teilen zwischen Usern
+Die `team_members`-Tabelle hat bereits einen UNIQUE-Constraint auf `(team_id, user_id)` - ein User kann also nicht doppelt im selben Team sein, aber technisch bereits in mehreren Teams. Das Problem liegt im Code:
 
-Zwei User (egal ob gleiche Berechtigung oder nicht) sollen einzelne Meetings miteinander teilen koennen, sodass beide Einsicht in das Meeting haben.
+- Die `admin-assign-team-member` Edge Function loescht bei "assign" ALLE bestehenden Team-Mitgliedschaften bevor sie den User zuweist
+- Die `admin-dashboard` Edge Function mappt nur EIN Team pro User (`teamMemberMap.set`)
+- Der `useTeamleadCheck` Hook nutzt `maybeSingle()` und gibt nur ein Team zurueck
+- Die RLS-Policy "Teamleads can view team recordings" funktioniert bereits fuer mehrere Teams (JOIN-basiert)
 
-### Datenbank-Aenderungen
+**Keine DB-Schema-Aenderungen noetig** - die Tabelle unterstuetzt bereits Multi-Team.
 
-**Neue Tabelle `shared_recordings`:**
+### 2. Edge Function: `admin-assign-team-member`
 
-| Spalte | Typ | Beschreibung |
-|--------|-----|-------------|
-| id | uuid | Primaerschluessel |
-| recording_id | uuid | Referenz auf das Recording |
-| shared_by | uuid | User der das Meeting teilt |
-| shared_with | uuid | User der Zugriff erhaelt |
-| created_at | timestamptz | Zeitstempel |
+- "assign" Action: NICHT mehr alle bestehenden Mitgliedschaften loeschen, sondern nur pruefen ob der User bereits in diesem Team ist, und falls nicht, hinzufuegen
+- "remove" Action: Benoetigt jetzt eine `team_id`, damit nur die Mitgliedschaft in einem bestimmten Team entfernt wird (nicht alle)
+- "set-role" Action: Benoetigt jetzt eine `team_id`, damit die Rolle nur in einem bestimmten Team geaendert wird
 
-**RLS-Policies:**
-- SELECT: User kann Eintraege sehen wo er `shared_by` oder `shared_with` ist
-- INSERT: User kann nur eigene Recordings teilen (`shared_by = auth.uid()` und Recording gehoert dem User)
-- DELETE: Nur der `shared_by`-User kann die Freigabe widerrufen
+### 3. Edge Function: `admin-dashboard`
 
-**Neue RLS-Policy auf `recordings`:**
-- SELECT: User kann Recordings sehen die mit ihm geteilt wurden (via `shared_recordings`-Tabelle)
+- Statt `teamMemberMap.set(userId, singleTeam)` ein Array pro User: `teamMemberships: [{teamId, teamName, teamRole}]`
+- Die User-Daten enthalten dann `teams: [{id, name, role}]` statt `team_id/team_name/team_role`
+- Kontingent-Berechnung: User-Kontingent wird ueber ALLE Teams summiert (oder das hoechste Team-Kontingent verwendet)
 
-### Frontend-Aenderungen
+### 4. Edge Function: `teamlead-recordings`
 
-**1. Share-Button auf der MeetingDetail-Seite (`src/pages/MeetingDetail.tsx`)**
-- Neues "Teilen"-Icon neben den bestehenden Aktions-Buttons
-- Oeffnet einen Dialog zum Teilen
+- Statt `maybeSingle()` alle Lead-Mitgliedschaften abfragen
+- Recordings aus ALLEN Teams sammeln, in denen der User Teamlead ist
+- Deduplizierung falls ein Recording-Owner in mehreren Teams des Leads ist
 
-**2. Neuer ShareRecordingDialog (`src/components/meeting/ShareRecordingDialog.tsx`)**
-- Eingabefeld fuer die E-Mail des Empfaengers
-- Liste der aktuell geteilten User mit Moeglichkeit zum Entfernen
-- Suche nach registrierten Usern ueber eine Edge Function
+### 5. Hook: `useTeamleadCheck`
 
-**3. Edge Function `share-recording` (`supabase/functions/share-recording/index.ts`)**
-- Aktionen: `share` (Freigabe erteilen), `unshare` (Freigabe entziehen), `list` (geteilte User auflisten)
-- Prueft ob der anfragende User der Owner des Recordings ist
-- Sucht den Ziel-User anhand der E-Mail-Adresse
+- Gibt jetzt ein Array von Teams zurueck statt eines einzelnen Teams
+- `isTeamlead` ist `true` wenn mindestens ein Team mit Rolle "lead" existiert
+- Neue Struktur: `teams: [{id, name, maxMinutes, members}]`
 
-**4. Kennzeichnung geteilter Meetings in der RecordingsList**
-- Badge "Geteilt von [Name]" bei Recordings die von anderen Usern geteilt wurden
-- Geteilte Meetings erscheinen in der normalen Recordings-Liste des Empfaengers
+### 6. Frontend: Admin-Seite (`/admin`)
 
-### Technische Details
+**Benutzer-Tab:**
+- Statt eines einzelnen Team-Dropdowns: Anzeige aller Team-Badges des Users mit Rolle (Mitglied/Lead)
+- Button "Teams verwalten" oeffnet einen Dialog wo man den User mehreren Teams zuweisen kann
 
-```text
-Ablauf: Meeting teilen
-+------------------+     +------------------+     +------------------+
-| MeetingDetail    | --> | ShareDialog      | --> | share-recording  |
-| (Share-Button)   |     | (E-Mail eingeben)|     | Edge Function    |
-+------------------+     +------------------+     +------------------+
-                                                         |
-                                                         v
-                                              +---------------------+
-                                              | shared_recordings   |
-                                              | Tabelle (INSERT)    |
-                                              +---------------------+
-                                                         |
-                                                         v
-                                              +---------------------+
-                                              | RLS-Policy auf      |
-                                              | recordings (SELECT) |
-                                              +---------------------+
-```
+**Teams-Tab (bestehend):**
+- Bleibt wie bisher - TeamCard mit "Mitglieder verwalten" Dialog
+- TeamMembersDialog: Aenderung der "Verfuegbare User"-Liste - User die bereits im Team sind werden nicht mehr angezeigt, aber User die in ANDEREN Teams sind bleiben verfuegbar (ohne Warnung)
 
-**Edge Function `share-recording`:**
-- Authentifizierung via JWT
-- Action `share`: E-Mail entgegennehmen, User-ID auflösen (via admin.listUsers), Eintrag in `shared_recordings` erstellen
-- Action `unshare`: Eintrag loeschen
-- Action `list`: Alle geteilten User fuer ein Recording auflisten (mit E-Mails)
+### 7. Frontend: Dashboard und Recordings
 
-**RLS-Policy fuer geteilte Recordings:**
-```sql
-CREATE POLICY "Users can view shared recordings"
-ON recordings FOR SELECT
-USING (
-  EXISTS (
-    SELECT 1 FROM shared_recordings
-    WHERE shared_recordings.recording_id = recordings.id
-    AND shared_recordings.shared_with = auth.uid()
-    AND recordings.deleted_at IS NULL
-  )
-);
-```
+**Dashboard (`/`):**
+- Wenn User in mehreren Teams Teamlead ist: Dropdown/Tabs zur Team-Auswahl im Analytics-Bereich
+- TeamAnalyticsCard erhaelt ein `teamId` Prop
 
-**RecordingsList-Anpassung (`src/components/recordings/RecordingsList.tsx`):**
-- Geteilte Recordings werden automatisch via die neue RLS-Policy mitgeladen
-- Ein JOIN oder separater Query auf `shared_recordings` zeigt an, ob ein Recording geteilt wurde und von wem
+**Recordings (`/recordings`):**
+- Team-Toggle zeigt bei Multi-Team ein Dropdown mit Team-Auswahl statt nur "Meine/Team"
+- Optionen: "Meine" | "Team A" | "Team B" | ...
+
+### 8. Admin bleibt unsichtbar
+
+- Der Admin sieht weiterhin ALLES (alle Recordings, alle Teams, alle User)
+- Teamleads und normale User sehen den Admin-Bereich nicht (bestehendes Verhalten, keine Aenderung noetig)
+- Im Admin-Dashboard ist der Admin ueber dem Team-Layer und kann alle Teams und User verwalten
 
 ### Zusammenfassung der Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| Migration SQL | Neue Tabelle `shared_recordings` + RLS-Policies |
-| `supabase/functions/share-recording/index.ts` | Neue Edge Function |
-| `src/components/meeting/ShareRecordingDialog.tsx` | Neuer Dialog |
-| `src/pages/MeetingDetail.tsx` | Share-Button hinzufuegen |
-| `src/components/recordings/RecordingCard.tsx` | Badge "Geteilt von..." |
-| `src/components/recordings/RecordingsList.tsx` | Geteilte Recordings anzeigen |
+| `supabase/functions/admin-assign-team-member/index.ts` | Multi-Team assign/remove/set-role |
+| `supabase/functions/admin-dashboard/index.ts` | Teams-Array statt einzelnem Team pro User |
+| `supabase/functions/teamlead-recordings/index.ts` | Alle Lead-Teams abfragen |
+| `src/hooks/useTeamleadCheck.ts` | Array von Teams zurueckgeben |
+| `src/pages/Admin.tsx` | Multi-Team-Badges und Zuweisung in User-Tab |
+| `src/components/admin/TeamMembersDialog.tsx` | Multi-Team-kompatible Filterung |
+| `src/pages/Recordings.tsx` | Team-Auswahl-Dropdown statt Toggle |
+| `src/pages/Index.tsx` | Team-Auswahl im Dashboard |
+| `src/components/dashboard/TeamAnalyticsCard.tsx` | Team-ID als Prop |
+| `src/components/recordings/RecordingsList.tsx` | Team-ID fuer Recordings-Fetch |
 
+### Technische Details
+
+```text
+Hierarchie:
++---------+
+| Admin   |  Sieht alles, verwaltet alles
++---------+
+     |
++------------+  +------------+
+| Team A     |  | Team B     |  Teams mit eigenem Kontingent
++------------+  +------------+
+  |  Lead: U1     |  Lead: U2, U3
+  |  Member: U2   |  Member: U1, U4
+  |  Member: U3   |
+  
+User U1 ist Member in Team A UND Member in Team B
+User U2 ist Member in Team A UND Lead in Team B
+```
+
+Die Admin-Sicht bleibt komplett getrennt vom Team-Layer - normale User und Teamleads sehen weder den Admin-Menuepunkt noch Admin-spezifische Daten.
