@@ -1,25 +1,53 @@
 
 
-## Buttons verschieben: Share und Loeschen aus Header entfernen, Share in Toolbar
+## Meeting mit Team/Teammitgliedern teilen - Dropdown neben Projektzuordnung
+
+### Uebersicht
+
+Neben dem bestehenden "Projekt zuordnen"-Dropdown auf der Meeting-Detailseite wird ein neues Dropdown eingefuegt, ueber das der Nutzer das Meeting mit seinem gesamten Team oder einzelnen Teammitgliedern teilen kann. Dafuer wird die bestehende `shared_recordings`-Tabelle und die `share-recording` Edge Function wiederverwendet.
 
 ### Aenderungen
 
-**Datei: `src/pages/MeetingDetail.tsx`**
+**1. Neue Komponente: `src/components/meeting/TeamShareDropdown.tsx`**
 
-1. **Header-Bereich (Zeilen 818-837)**: Die beiden Buttons "Meeting teilen" (Share2) und "Meeting loeschen" (Trash2) werden komplett aus dem Header entfernt. Dort bleibt nur der Status-Badge und der Aktualisieren-Button.
+Eine neue Komponente, die neben `ProjectAssignment` platziert wird. Sie:
+- Laedt die Teams des aktuellen Users ueber die `team_members`-Tabelle
+- Laedt alle Teammitglieder der gefundenen Teams (mit E-Mail-Aufloesung)
+- Zeigt ein Dropdown mit zwei Bereichen:
+  - "Ganzes Team teilen" (teilt mit allen Mitgliedern eines Teams auf einmal)
+  - Einzelne Teammitglieder zum Auswaehlen
+- Bereits geteilte Mitglieder werden als Badges mit X-Button angezeigt (wie bei ProjectAssignment)
+- Nutzt die bestehende `share-recording` Edge Function fuer jede Freigabe
 
-2. **Transkript-Toolbar (Zeilen 1048-1068)**: Der Share-Button wird zwischen "Transkript neu laden" und "Bericht herunterladen" eingefuegt. Die Toolbar bekommt dann drei Buttons:
-   - Transkript neu laden (links)
-   - Meeting teilen (Mitte/rechts)
-   - Bericht herunterladen (rechts)
+**2. Edge Function `share-recording/index.ts` erweitern**
 
-3. **Loeschen-Button**: Wird ebenfalls in die Toolbar verschoben (ganz rechts), damit er weiterhin erreichbar ist, aber nicht prominent im Header steht.
+Neue Action `share-team` hinzufuegen:
+- Empfaengt `recording_id` und eine Liste von `user_ids`
+- Erstellt fuer jeden User einen Eintrag in `shared_recordings` (ignoriert Duplikate)
+- Spart mehrere Einzelaufrufe
+
+**3. MeetingDetail.tsx anpassen**
+
+- `TeamShareDropdown` neben `ProjectAssignment` in Zeile 681 einfuegen
+- Layout: Beide Dropdowns nebeneinander in einer Zeile
 
 ### Technische Details
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/pages/MeetingDetail.tsx` | Share + Delete Buttons aus Header entfernen (Zeilen 818-837), Share Button in Transkript-Toolbar einfuegen (nach Zeile 1058) |
+| `src/components/meeting/TeamShareDropdown.tsx` | Neue Komponente: Team-/Mitglieder-Dropdown mit Share-Logik |
+| `supabase/functions/share-recording/index.ts` | Neue Action `share-team` fuer Bulk-Sharing mit mehreren User-IDs |
+| `src/pages/MeetingDetail.tsx` | TeamShareDropdown neben ProjectAssignment einfuegen (Zeile 680-682) |
 
-Keine weiteren Dateien betroffen.
+### Ablauf
+
+1. User oeffnet Meeting-Detailseite
+2. Neben dem Projekt-Dropdown erscheint ein "Mit Team teilen"-Dropdown (Users-Icon)
+3. Dropdown zeigt: Team-Name (alle teilen) + einzelne Mitglieder mit Checkboxen
+4. Bei Auswahl wird `share-recording` Edge Function aufgerufen
+5. Bereits geteilte Mitglieder werden als Badges angezeigt und koennen per X entfernt werden
+
+### Keine Datenbank-Aenderungen noetig
+
+Die bestehende `shared_recordings`-Tabelle deckt den Use Case bereits ab. Fuer jedes Teammitglied wird ein eigener Eintrag erstellt.
 
