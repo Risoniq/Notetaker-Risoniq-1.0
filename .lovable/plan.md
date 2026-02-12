@@ -1,110 +1,59 @@
 
 
-## Team-Mitglieder zu Projekten einladen
+## Fix: Endlosschleife in RLS-Policies (Kritisch)
 
-### Ueberblick
+### Problem
 
-Aktuell gehoert ein Projekt einem einzelnen User (`projects.user_id`). Es soll moeglich sein, Team-Mitglieder (aus dem gleichen Team) zu einem Projekt einzuladen. Der eingeladene User sieht das Projekt in seiner Projektliste und kann "Beitreten" klicken, um alle Meetings des Projekts einzusehen.
+Die letzte Migration hat eine zirkulaere Abhaengigkeit zwischen den RLS-Policies von `projects` und `project_members` erstellt:
 
-### Datenbank-Aenderungen
+- `project_members` SELECT-Policy prueft `EXISTS (... FROM projects ...)`
+- `projects` SELECT-Policy prueft `EXISTS (... FROM project_members ...)`
 
-**Neue Tabelle `project_members`:**
+PostgreSQL erkennt diese Endlosschleife und blockiert alle Queries, die diese Tabellen beruehren - inklusive der gesamten Recordings-Seite.
 
-| Spalte | Typ | Beschreibung |
-|--------|-----|-------------|
-| id | uuid | Primaerschluessel |
-| project_id | uuid | Referenz auf das Projekt |
-| user_id | uuid | Eingeladener User |
-| invited_by | uuid | Wer hat eingeladen |
-| status | text | "pending" oder "joined" |
-| created_at | timestamptz | Zeitstempel |
+### Loesung
 
-UNIQUE-Constraint auf `(project_id, user_id)`.
+Die `project_members` SELECT-Policy darf NICHT auf `projects` verweisen, da `projects` bereits auf `project_members` verweist. Stattdessen speichern wir die Pruefung "ist der User Project-Owner?" direkt ueber die `project_id` und `invited_by` Spalten, ohne die `projects`-Tabelle zu konsultieren.
 
-**RLS-Policies auf `project_members`:**
-- SELECT: User kann Eintraege sehen, wo er `user_id` oder `invited_by` ist, oder wo er Owner des Projekts ist
-- INSERT: Nur der Projekt-Owner kann einladen (und nur Team-Mitglieder aus dem gleichen Team)
-- UPDATE: Nur der eingeladene User kann seinen Status auf "joined" setzen
-- DELETE: Projekt-Owner oder der eingeladene User koennen den Eintrag loeschen
+### Datenbank-Migration
 
-**Neue RLS-Policy auf `projects`:**
-- SELECT: User kann Projekte sehen, bei denen er in `project_members` mit Status "joined" eingetragen ist
+1. **`project_members` SELECT-Policy ersetzen**: Statt `EXISTS (SELECT FROM projects)` nur `auth.uid() = user_id OR auth.uid() = invited_by` verwenden - der `invited_by` ist immer der Owner, da die INSERT-Policy das bereits sicherstellt.
 
-**Neue RLS-Policy auf `project_recordings`:**
-- SELECT: User kann project_recordings sehen, wenn er in `project_members` mit Status "joined" fuer dieses Projekt eingetragen ist
+2. **`project_members` INSERT-Policy anpassen**: Die Owner-Pruefung ueber `projects` ist hier unproblematisch, da INSERT auf `project_members` nicht rekursiv SELECT auf `projects` triggert. Diese bleibt bestehen.
 
-**Neue RLS-Policy auf `recordings`:**
-- SELECT: User kann Recordings sehen, die ueber `project_recordings` einem Projekt zugeordnet sind, bei dem er Mitglied mit Status "joined" ist
+3. **`project_members` DELETE-Policy anpassen**: Gleiche Logik - `auth.uid() = user_id OR auth.uid() = invited_by` statt `EXISTS (SELECT FROM projects)`.
 
-### Edge Function: `project-invite`
+### Betroffene Policies (Drop + Recreate)
 
-Aktionen:
-- **invite**: Projekt-Owner gibt eine E-Mail ein. Die Funktion prueft ob der Ziel-User im gleichen Team ist. Falls ja, wird ein Eintrag in `project_members` mit Status "pending" erstellt.
-- **list**: Alle Mitglieder/Einladungen eines Projekts auflisten (mit E-Mails)
-- **remove**: Ein Mitglied entfernen (nur Projekt-Owner)
-
-### Frontend-Aenderungen
-
-**1. Einladungs-Button auf der Projekt-Detailseite (`ProjectDetail.tsx`)**
-- Neues "Einladen"-Icon neben "Meetings zuordnen"
-- Oeffnet einen `InviteToProjectDialog`
-
-**2. Neuer InviteToProjectDialog (`src/components/projects/InviteToProjectDialog.tsx`)**
-- Eingabefeld fuer die E-Mail des Team-Mitglieds
-- Liste der aktuellen Mitglieder mit Status (Eingeladen / Beigetreten) und Entfernen-Option
-- Nur Team-Mitglieder koennen eingeladen werden
-
-**3. Projekt-Liste erweitern (`Projects.tsx` und `useProjects.ts`)**
-- Neben eigenen Projekten auch Projekte laden, zu denen der User eingeladen wurde (via `project_members`)
-- Projekte mit Status "pending" zeigen einen "Beitreten"-Button
-- Projekte mit Status "joined" verhalten sich wie eigene Projekte (ohne Loeschen/Bearbeiten)
-
-**4. ProjectCard Anpassung (`ProjectCard.tsx`)**
-- Badge "Einladung" bei Projekten mit Status "pending"
-- "Beitreten"-Button statt Loeschen-Button bei eingeladenen Projekten
-- Badge "Geteilt" bei beigetretenen Projekten
-- Kein Loeschen-Button fuer nicht-eigene Projekte
-
-**5. ProjectDetail Anpassung**
-- Eingeladene User koennen Meetings sehen aber nicht entfernen oder zuordnen
-- Nur der Owner sieht "Meetings zuordnen", "Einladen" und "KI-Analyse"
+| Policy | Tabelle | Aenderung |
+|--------|---------|-----------|
+| "Users can view project memberships" | project_members | Entferne projects-Subquery, nutze nur user_id/invited_by |
+| "Owners and members can remove memberships" | project_members | Entferne projects-Subquery, nutze nur user_id/invited_by |
 
 ### Technische Details
 
+Die Rekursionskette war:
 ```text
-Ablauf: Projekt-Einladung
-+------------------+     +---------------------+     +------------------+
-| ProjectDetail    | --> | InviteToProject     | --> | project-invite   |
-| (Einladen-Btn)   |     | Dialog (E-Mail)     |     | Edge Function    |
-+------------------+     +---------------------+     +------------------+
-                                                            |
-                                                            v
-                                                 +---------------------+
-                                                 | project_members     |
-                                                 | status: "pending"   |
-                                                 +---------------------+
-
-Ablauf: Beitreten
-+------------------+     +---------------------+
-| Projects-Liste   | --> | project_members     |
-| (Beitreten-Btn)  |     | status: "joined"    |
-+------------------+     +---------------------+
-                                |
-                                v
-                         Zugriff auf Projekt
-                         + alle zugeordneten
-                         Recordings via RLS
+recordings SELECT
+  -> project_recordings SELECT (via RLS)
+    -> project_members SELECT (via RLS)
+      -> projects SELECT (via RLS)
+        -> project_members SELECT (via RLS)  <-- ENDLOSSCHLEIFE
 ```
 
-### Zusammenfassung der Dateien
+Nach dem Fix:
+```text
+recordings SELECT
+  -> project_recordings SELECT (via RLS)
+    -> project_members SELECT (via RLS, prueft nur user_id/invited_by)
+      -> KEIN weiterer Tabellenzugriff -> OK
+```
+
+### Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| Migration SQL | Neue Tabelle `project_members` + RLS-Policies auf projects, project_recordings, recordings |
-| `supabase/functions/project-invite/index.ts` | Neue Edge Function |
-| `src/components/projects/InviteToProjectDialog.tsx` | Neuer Dialog |
-| `src/pages/ProjectDetail.tsx` | Einladen-Button + Owner-Logik |
-| `src/pages/Projects.tsx` | Eingeladene Projekte anzeigen |
-| `src/hooks/useProjects.ts` | Eingeladene Projekte laden + Beitreten-Mutation |
-| `src/components/projects/ProjectCard.tsx` | Einladungs-Badge + Beitreten-Button |
+| Neue Migration SQL | Drop + Recreate der zwei project_members Policies |
+
+Keine Frontend-Aenderungen noetig - sobald die Policies repariert sind, funktioniert alles wieder.
 
