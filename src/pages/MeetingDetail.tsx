@@ -747,6 +747,16 @@ export default function MeetingDetail() {
                       body: { recording_id: recording.id },
                     });
                     if (error) throw error;
+                    if (data?.error) {
+                      const errMsg = data.error;
+                      if (errMsg.includes('Keine Aufnahmen')) {
+                        toast.error("Dieser Bot hat keine Aufnahmen erzeugt. Ein Transkript kann nicht erstellt werden.");
+                      } else {
+                        toast.error(errMsg);
+                      }
+                      setIsRecallTranscribing(false);
+                      return;
+                    }
                     setRecording(prev => prev ? { ...prev, status: 'transcribing' } : null);
                     toast.success("Recall.ai Transkription gestartet! Klicke in 1-2 Minuten auf 'Transkript neu laden'.");
                   } catch (err) {
