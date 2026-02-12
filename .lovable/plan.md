@@ -1,53 +1,46 @@
 
 
-## Meeting mit Team/Teammitgliedern teilen - Dropdown neben Projektzuordnung
+## Projekt-Einladung um Team-Auswahl erweitern
 
 ### Uebersicht
 
-Neben dem bestehenden "Projekt zuordnen"-Dropdown auf der Meeting-Detailseite wird ein neues Dropdown eingefuegt, ueber das der Nutzer das Meeting mit seinem gesamten Team oder einzelnen Teammitgliedern teilen kann. Dafuer wird die bestehende `shared_recordings`-Tabelle und die `share-recording` Edge Function wiederverwendet.
+Der bestehende Einladungsdialog (`InviteToProjectDialog`) wird um einen zweiten Bereich ergaenzt: eine Listenauswahl aller Teammitglieder des aktuellen Users. So kann man Mitglieder entweder per E-Mail einladen (fuer externe) oder direkt aus der Teamliste auswaehlen.
 
 ### Aenderungen
 
-**1. Neue Komponente: `src/components/meeting/TeamShareDropdown.tsx`**
+**1. Edge Function `project-invite/index.ts` - Neue Action `list-team-members`**
 
-Eine neue Komponente, die neben `ProjectAssignment` platziert wird. Sie:
-- Laedt die Teams des aktuellen Users ueber die `team_members`-Tabelle
-- Laedt alle Teammitglieder der gefundenen Teams (mit E-Mail-Aufloesung)
-- Zeigt ein Dropdown mit zwei Bereichen:
-  - "Ganzes Team teilen" (teilt mit allen Mitgliedern eines Teams auf einmal)
-  - Einzelne Teammitglieder zum Auswaehlen
-- Bereits geteilte Mitglieder werden als Badges mit X-Button angezeigt (wie bei ProjectAssignment)
-- Nutzt die bestehende `share-recording` Edge Function fuer jede Freigabe
+Eine neue Action, die alle Teammitglieder des aufrufenden Users zurueckgibt (gruppiert nach Team, mit E-Mail-Aufloesung). Bereits eingeladene Mitglieder werden markiert. Logik:
+- Teams des Users ueber `team_members` laden
+- Alle Mitglieder dieser Teams laden (ohne den User selbst)
+- E-Mails ueber `auth.admin.listUsers()` aufloesen
+- Rueckgabe: `{ members: [{ userId, email, teamId, teamName }] }`
 
-**2. Edge Function `share-recording/index.ts` erweitern**
+**2. Edge Function `project-invite/index.ts` - Neue Action `invite-by-user-id`**
 
-Neue Action `share-team` hinzufuegen:
-- Empfaengt `recording_id` und eine Liste von `user_ids`
-- Erstellt fuer jeden User einen Eintrag in `shared_recordings` (ignoriert Duplikate)
-- Spart mehrere Einzelaufrufe
+Ergaenzend zur bestehenden `invite`-Action (per E-Mail) eine neue Action, die direkt eine `userId` akzeptiert. Damit entfaellt die E-Mail-Suche, da der User bereits aus der Liste ausgewaehlt wurde. Prueft weiterhin: Projekt-Owner, gleiche Team-Zugehoerigkeit, keine Duplikate.
 
-**3. MeetingDetail.tsx anpassen**
+**3. `InviteToProjectDialog.tsx` - UI erweitern**
 
-- `TeamShareDropdown` neben `ProjectAssignment` in Zeile 681 einfuegen
-- Layout: Beide Dropdowns nebeneinander in einer Zeile
+Der Dialog bekommt zwei Bereiche:
 
-### Technische Details
+| Bereich | Beschreibung |
+|---------|-------------|
+| Teammitglieder-Liste (oben) | Checkboxen mit allen Teammitgliedern, gruppiert nach Team. Bereits eingeladene sind ausgegraut/markiert. "Alle einladen"-Button pro Team. |
+| E-Mail-Einladung (unten) | Das bestehende E-Mail-Eingabefeld bleibt erhalten fuer externe Einladungen. |
+
+Technische Details:
+- Beim Oeffnen des Dialogs werden parallel `list` (bestehende Mitglieder) und `list-team-members` geladen
+- Klick auf ein Teammitglied ruft `invite-by-user-id` auf und aktualisiert die Liste
+- Bereits eingeladene Mitglieder (aus der `members`-Liste) werden als "checked" und disabled angezeigt
+- "Alle einladen"-Button pro Team laedt alle noch nicht eingeladenen Mitglieder ein
+
+### Zusammenfassung
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/components/meeting/TeamShareDropdown.tsx` | Neue Komponente: Team-/Mitglieder-Dropdown mit Share-Logik |
-| `supabase/functions/share-recording/index.ts` | Neue Action `share-team` fuer Bulk-Sharing mit mehreren User-IDs |
-| `src/pages/MeetingDetail.tsx` | TeamShareDropdown neben ProjectAssignment einfuegen (Zeile 680-682) |
+| `supabase/functions/project-invite/index.ts` | Neue Actions `list-team-members` und `invite-by-user-id` |
+| `src/components/projects/InviteToProjectDialog.tsx` | Teammitglieder-Liste mit Checkboxen oberhalb des E-Mail-Felds |
 
-### Ablauf
-
-1. User oeffnet Meeting-Detailseite
-2. Neben dem Projekt-Dropdown erscheint ein "Mit Team teilen"-Dropdown (Users-Icon)
-3. Dropdown zeigt: Team-Name (alle teilen) + einzelne Mitglieder mit Checkboxen
-4. Bei Auswahl wird `share-recording` Edge Function aufgerufen
-5. Bereits geteilte Mitglieder werden als Badges angezeigt und koennen per X entfernt werden
-
-### Keine Datenbank-Aenderungen noetig
-
-Die bestehende `shared_recordings`-Tabelle deckt den Use Case bereits ab. Fuer jedes Teammitglied wird ein eigener Eintrag erstellt.
+Keine Datenbank-Aenderungen noetig - die bestehende `project_members`-Tabelle wird wiederverwendet.
 
