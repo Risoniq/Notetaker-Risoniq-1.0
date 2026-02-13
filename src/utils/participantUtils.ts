@@ -180,7 +180,7 @@ export const extractParticipantsFromTranscript = (
 export interface ParticipantResult {
   count: number;
   names: string[];
-  source: 'database' | 'transcript' | 'fallback';
+  source: 'database' | 'calendar' | 'transcript' | 'fallback';
 }
 
 /**
@@ -193,6 +193,7 @@ export interface ParticipantResult {
 export const getConsistentParticipantCount = (
   recording: {
     participants?: Participant[] | null;
+    calendar_attendees?: { name: string; email: string }[] | null;
     transcript_text?: string | null;
   }
 ): ParticipantResult => {
@@ -208,7 +209,22 @@ export const getConsistentParticipantCount = (
     }
   }
   
-  // 2. Fallback: Extrahiere aus Transkript
+  // 2. Fallback: calendar_attendees aus Kalender-Event
+  if (recording.calendar_attendees && Array.isArray(recording.calendar_attendees)) {
+    const calendarNames = recording.calendar_attendees
+      .map(a => a.name || a.email.split('@')[0])
+      .filter(name => !isBot(name) && !isMetadataField(name))
+      .map(name => normalizeGermanName(name));
+    if (calendarNames.length > 0) {
+      return {
+        count: calendarNames.length,
+        names: calendarNames,
+        source: 'calendar'
+      };
+    }
+  }
+  
+  // 3. Fallback: Extrahiere aus Transkript
   if (recording.transcript_text) {
     const extracted = extractParticipantsFromTranscript(recording.transcript_text);
     
