@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
+import { useSessionTimeout } from "@/hooks/useSessionTimeout";
+import { SessionTimeoutWarning } from "@/components/session/SessionTimeoutWarning";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -20,6 +22,7 @@ const navItems = [
 export function AppLayout({ children }: AppLayoutProps) {
   const location = useLocation();
   const { isAdmin } = useAdminCheck();
+  const { showWarning, remainingSeconds, extendSession } = useSessionTimeout();
 
   return (
     <div className={cn(
@@ -96,6 +99,12 @@ export function AppLayout({ children }: AppLayoutProps) {
           {children}
         </div>
       </main>
+
+      <SessionTimeoutWarning
+        open={showWarning}
+        remainingSeconds={remainingSeconds}
+        onExtend={extendSession}
+      />
     </div>
   );
 }
