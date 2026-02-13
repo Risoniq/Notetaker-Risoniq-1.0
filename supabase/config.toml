@@ -119,3 +119,6 @@ verify_jwt = false
 
 [functions.share-recording]
 verify_jwt = false
+
+[functions.auto-sync-recordings]
+verify_jwt = false
