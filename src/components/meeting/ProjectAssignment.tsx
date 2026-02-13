@@ -60,7 +60,7 @@ export function ProjectAssignment({ recordingId }: ProjectAssignmentProps) {
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <FolderKanban className="h-4 w-4 text-muted-foreground shrink-0" />
+      <FolderKanban className="h-4 w-4 text-foreground shrink-0" />
 
       {assignedProjects.map((p) => (
         <Badge
