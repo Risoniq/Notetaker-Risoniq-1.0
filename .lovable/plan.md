@@ -1,72 +1,75 @@
 
-
-# Backup-Fehler beheben
+# Fix: "Automatisch beitreten" Toggle springt auf AN
 
 ## Problem
 
-Die Backup-Integritaetspruefung meldet **74 fehlende Backups** bei 74 Recordings. Es gibt zwei Ursachen:
+Der Schalter "Automatische Aufnahme" zeigt beim Laden der Einstellungsseite kurz den Standardwert (AUS) an, bevor die gespeicherten Praeferenzen aus der Datenbank geladen werden. Wenn der gespeicherte Wert AN ist, "springt" der Schalter sichtbar von AUS auf AN. Das passiert bei jedem Seitenaufruf und wirkt wie ein Bug.
 
-1. **Falsche Dateinamen-Erkennung**: Die Pruefung sucht nach `{id}.txt`, `{id}.json` oder `meeting_{id}.txt`, aber die Webhooks speichern Dateien als `{id}_{timestamp}.txt` oder `{id}_video_{timestamp}.txt`. Die Pruefung findet also auch vorhandene Backups nicht.
+## Ursache
 
-2. **Keine nachtraeglichen Backups**: Aeltere Recordings, die vor der Backup-Logik erstellt wurden, haben nie ein Backup erhalten.
+Der Hook `useRecallCalendarMeetings` initialisiert den `preferences`-State sofort mit Standardwerten (`auto_record: false`), waehrend die tatsaechlichen Werte asynchron aus der Datenbank geladen werden. Es gibt keinen Loading-State fuer Praeferenzen, sodass die Switches sofort mit falschen Werten gerendert werden.
 
 ## Loesung
 
-### Schritt 1: Dateinamen-Erkennung in `backup-integrity-check` korrigieren
+### Schritt 1: Loading-State fuer Praeferenzen im Hook hinzufuegen
 
-Die Edge Function prueft aktuell nur exakte Dateinamen. Stattdessen soll sie mit einem Praefix-Match arbeiten: alle Dateien im User-Ordner, die mit der Recording-ID beginnen, gelten als gefunden.
+**Datei:** `src/hooks/useRecallCalendarMeetings.ts`
 
-**Datei:** `supabase/functions/backup-integrity-check/index.ts`
+- Neuen State `preferencesLoaded` (boolean, default `false`) hinzufuegen
+- Nach erfolgreichem Laden der Praeferenzen auf `true` setzen
+- Als Rueckgabewert exportieren
 
-Aenderung: Statt `possibleNames` mit exakten Namen wird geprueft, ob irgendeine Datei im Ordner mit der Recording-ID beginnt (`file.name.startsWith(rec.id)`).
+### Schritt 2: Switches erst nach Laden anzeigen
 
-### Schritt 2: Neue Edge Function `repair-all-recordings` erweitern
+**Datei:** `src/pages/Settings.tsx`
 
-Eine neue Action `create-missing-backups` in der bestehenden `repair-all-recordings` Edge Function (oder eine neue Funktion), die:
-
-1. Alle Recordings mit `status = 'done'` und vorhandenem `transcript_text` laedt
-2. Fuer jedes Recording prueft, ob ein Backup im Storage existiert
-3. Falls nicht, das Backup aus dem `transcript_text` der Datenbank erstellt und in `transcript-backups/{user_id}/{recording_id}_{timestamp}.txt` hochlaedt
-
-**Datei:** `supabase/functions/repair-all-recordings/index.ts` (erweitern oder neue Funktion)
-
-### Schritt 3: Admin-UI Button zum Erstellen fehlender Backups
-
-Im `SecurityDashboard` einen Button "Fehlende Backups erstellen" hinzufuegen, der die neue Funktion aufruft und den Fortschritt anzeigt.
-
-**Datei:** `src/components/admin/SecurityDashboard.tsx`
+- `preferencesLoaded` aus dem Hook destrukturieren
+- Im Bereich "Aufnahme-Einstellungen" einen Loading-Skeleton oder Spinner anzeigen, solange `preferencesLoaded` false ist
+- Die Switch-Elemente erst rendern, wenn die Praeferenzen vollstaendig geladen sind
 
 ## Technische Details
 
-### Korrektur der Dateinamen-Pruefung (Schritt 1)
+### Hook-Aenderung (useRecallCalendarMeetings.ts)
 
 ```typescript
-// Vorher (falsch):
-const possibleNames = [
-  `${rec.id}.txt`,
-  `${rec.id}.json`,
-  `meeting_${rec.id}.txt`,
-];
-const found = possibleNames.some(name => fileNames.has(name));
+// Neuer State
+const [preferencesLoaded, setPreferencesLoaded] = useState(false);
 
-// Nachher (korrekt - Praefix-Match):
-const found = (files || []).some(f => f.name.startsWith(rec.id));
+// In loadPreferences, nach setPreferences:
+if (data.success && data.preferences) {
+  setPreferences(data.preferences);
+  prefsLoadedRef.current = true;
+  setPreferencesLoaded(true);   // NEU
+}
+
+// Auch bei Fehler oder wenn kein User-Eintrag existiert:
+// setPreferencesLoaded(true) um den Default-State zu bestaetigen
+
+// Export erweitern:
+return {
+  ...
+  preferencesLoaded,
+  ...
+};
 ```
 
-### Backup-Reparatur (Schritt 2)
+### UI-Aenderung (Settings.tsx)
 
-Die Funktion iteriert ueber alle Recordings mit Transkript, prueft ob ein Backup existiert, und erstellt fehlende Backups. Um Timeouts zu vermeiden, wird in Batches gearbeitet (z.B. 20 pro Aufruf).
+```typescript
+const { preferences, updatePreferences, fetchMeetings, preferencesLoaded } = useRecallCalendarMeetings();
 
-### UI-Erweiterung (Schritt 3)
-
-Ein neuer Button "Fehlende Backups erstellen" im Backup-Test-Tab, der:
-- Den Reparatur-Vorgang startet
-- Einen Fortschrittsbalken anzeigt
-- Nach Abschluss automatisch eine neue Integritaetspruefung ausloeost
+// Im CardContent der Aufnahme-Einstellungen:
+{!preferencesLoaded ? (
+  <div className="flex items-center justify-center py-4">
+    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+  </div>
+) : (
+  // ... bestehende Switch-Elemente
+)}
+```
 
 ## Erwartetes Ergebnis
 
-Nach der Umsetzung:
-- Vorhandene Backups werden korrekt erkannt (Praefix-Match)
-- Fehlende Backups koennen per Klick nachtraeglich erstellt werden
-- Kuenftige Integritaetspruefungen zeigen den korrekten Status an
+- Beim Laden der Seite wird ein Spinner statt der Switches angezeigt
+- Sobald die Praeferenzen geladen sind, erscheinen die Switches mit dem korrekten gespeicherten Wert
+- Kein "Springen" des Toggles mehr sichtbar
