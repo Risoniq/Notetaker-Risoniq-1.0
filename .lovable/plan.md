@@ -1,35 +1,51 @@
 
 
-## Dark-Mode-Fix fuer das Chat-Fenster in der Deep Dive Analyse
+## Account-Analyse Sheet vergroessern und To-Do-Uebersicht hinzufuegen
 
-### Problem
-Das Chat-Widget (`MeetingChatWidget.tsx`) verwendet `bg-secondary-foreground` als Hintergrund. Im Dark Mode ist `secondary-foreground` ein heller Farbton (`hsl(195, 20%, 85%)`), was den Chat-Bereich zu hell und schlecht lesbar macht.
+### Ziel
+Das Seitenfenster der Account-Analyse wird breiter und erhaelt einen neuen Abschnitt, der alle To-Dos aus den Meetings anzeigt -- mit einem Filter fuer "Diese Woche" und "Alle".
 
-### Loesung
-Die Hintergrund- und Textfarben des Chat-Widgets werden auf dunklere, zum Dark Mode passende Werte umgestellt. Das Widget soll `bg-muted` oder `bg-card` verwenden, die im Dark Mode automatisch dunkel sind.
+### Aenderungen
 
-### Aenderungen in `src/components/meeting/MeetingChatWidget.tsx`
+**1. `src/components/dashboard/AccountAnalyticsModal.tsx` -- Sheet breiter machen**
+- `sm:max-w-2xl` aendern zu `sm:max-w-4xl` (von 672px auf 896px Breite)
 
-| Zeile | Aktuell | Neu |
-|-------|---------|-----|
-| 170 | `bg-secondary-foreground` | `bg-muted dark:bg-muted` |
-| 171 | `text-primary-foreground` | `text-foreground` |
-| 179 | `text-primary-foreground` | `text-muted-foreground` |
-| 193-197 | Assistenten-Nachrichten: `bg-background/70 border` | `bg-background/80 border` (keine grosse Aenderung noetig) |
-| 214 | Input: `bg-background/50` | `bg-background/70` |
+**2. `src/components/dashboard/AccountAnalyticsModal.tsx` -- To-Do-Uebersicht hinzufuegen**
+- Neuer Abschnitt nach den Pie Charts: "Meine To-Dos"
+- Zwei Tabs/Filter-Buttons: "Diese Woche" und "Alle"
+- To-Dos werden aus allen Recordings extrahiert und in einer Liste angezeigt
+- Jedes To-Do zeigt: Text, Meeting-Titel (als Kontext), Datum
+- To-Dos mit erkanntem Verantwortlichen (Name vor dem Doppelpunkt) werden hervorgehoben wenn sie dem User zugeordnet sind
 
-Konkret:
-- **Container** (Zeile 170): `bg-secondary-foreground` wird zu `bg-muted` -- im Dark Mode dunkel, im Light Mode dezent
-- **Titel** (Zeile 171): `text-primary-foreground` wird zu `text-foreground` -- passt sich automatisch an
-- **Platzhalter-Text** (Zeile 179): `text-primary-foreground` wird zu `text-muted-foreground`
-- **Input-Feld** (Zeile 214): `bg-background/50` wird zu `bg-background/70` fuer etwas mehr Kontrast
+**3. `src/utils/accountAnalytics.ts` -- To-Do-Daten mit Meeting-Kontext exportieren**
+- Neues Interface `ActionItemWithContext`: text, meetingTitle, meetingDate, assignedTo (optional)
+- Neue Eigenschaft `allActionItems: ActionItemWithContext[]` im `AccountAnalytics` Interface
+- In `calculateAccountAnalytics`: Action Items mit Meeting-Titel und Datum sammeln, Verantwortlichen per Regex extrahieren
 
-### Auch in `src/components/dashboard/MeetingChatWidget.tsx`
+### Technische Details
 
-Das Dashboard-Chat-Widget hat dieselben Farb-Probleme und wird identisch angepasst (gleiche Klassen-Aenderungen).
+Neues Interface:
+```
+interface ActionItemWithContext {
+  text: string;
+  meetingTitle: string;
+  meetingDate: string;       // ISO string
+  assignedTo: string | null; // Extrahierter Name oder null
+}
+```
 
-### Ergebnis
-- Im Dark Mode: dunkler Hintergrund mit gut lesbarem Text
-- Im Light Mode: unveraendert dezenter, heller Hintergrund
-- Konsistent mit dem Apple Liquid Glass Design-System
+Filter-Logik "Diese Woche":
+- Meetings der aktuellen Kalenderwoche (Montag bis Sonntag) filtern per `isThisWeek(parseISO(item.meetingDate))`
+
+To-Do-Liste im Sheet:
+- Kompakte Liste mit Checkbox-Icon, To-Do-Text (max 2 Zeilen), und darunter in klein: Meeting-Titel + Datum
+- Toggle zwischen "Diese Woche" (Standard) und "Alle"
+- Zaehler-Badge an jedem Tab zeigt Anzahl der To-Dos
+
+### Betroffene Dateien
+
+| Datei | Aenderung |
+|-------|-----------|
+| `src/utils/accountAnalytics.ts` | Neues Interface + allActionItems Feld mit Meeting-Kontext |
+| `src/components/dashboard/AccountAnalyticsModal.tsx` | Sheet breiter + To-Do-Uebersicht mit Wochen-Filter |
 
