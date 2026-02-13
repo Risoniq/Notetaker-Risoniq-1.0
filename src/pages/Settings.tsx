@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { ArrowLeft, Bell, Bot, Check, Download, FileText, HelpCircle, Loader2, LogOut, Mic, PlayCircle, RefreshCw, Shield, Upload, Volume2, X } from "lucide-react";
+import { ArrowLeft, Bell, Bot, Calendar as CalendarIcon, Check, Download, FileText, HelpCircle, Loader2, LogOut, Mic, PlayCircle, RefreshCw, Settings2, Shield, Upload, Volume2, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useOnboardingTour } from "@/hooks/useOnboardingTour";
 import { Link } from "react-router-dom";
@@ -16,6 +16,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useImpersonation } from "@/contexts/ImpersonationContext";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
+import { useRecallCalendarMeetings } from "@/hooks/useRecallCalendarMeetings";
+import { useGoogleRecallCalendar } from "@/hooks/useGoogleRecallCalendar";
+import { useMicrosoftRecallCalendar } from "@/hooks/useMicrosoftRecallCalendar";
+import { RecallCalendarConnection } from "@/components/calendar/RecallCalendarConnection";
+import { AppLayout } from "@/components/layout/AppLayout";
 
 const Settings = () => {
   const { toast } = useToast();
@@ -24,6 +29,10 @@ const Settings = () => {
   const { isImpersonating, impersonatedUserId, impersonatedUserEmail } = useImpersonation();
   const { isAdmin } = useAdminCheck();
   
+  // Calendar hooks
+  const { preferences, updatePreferences, fetchMeetings } = useRecallCalendarMeetings();
+  const google = useGoogleRecallCalendar();
+  const microsoft = useMicrosoftRecallCalendar();
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/auth");
@@ -549,15 +558,10 @@ const Settings = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
+    <AppLayout>
+    <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <Link to="/">
-            <Button variant="ghost" size="icon" className="rounded-full">
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-          </Link>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Einstellungen</h1>
             <p className="text-muted-foreground">Konfiguriere deinen AI Meeting Recorder</p>
@@ -663,6 +667,94 @@ const Settings = () => {
                   <p className="text-sm text-muted-foreground">Versuche den Warteraum zu umgehen</p>
                 </div>
                 <Switch />
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Calendar Connections */}
+          <Card data-tour="calendar-connection">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <CalendarIcon className="h-5 w-5 text-primary" />
+                <CardTitle>Kalender-Verbindungen</CardTitle>
+              </div>
+              <CardDescription>Verbinde Google oder Microsoft Kalender, damit der Bot automatisch deinen Meetings beitritt</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <RecallCalendarConnection
+                googleStatus={google.status}
+                googleError={google.error}
+                googleConnected={google.connected}
+                googlePendingOauthUrl={google.pendingOauthUrl}
+                googleIsLoading={google.isLoading}
+                onConnectGoogle={google.connect}
+                onDisconnectGoogle={google.disconnect}
+                onCheckGoogleStatus={google.checkStatus}
+                microsoftStatus={microsoft.status}
+                microsoftError={microsoft.error}
+                microsoftConnected={microsoft.connected}
+                microsoftPendingOauthUrl={microsoft.pendingOauthUrl}
+                microsoftIsLoading={microsoft.isLoading}
+                onConnectMicrosoft={microsoft.connect}
+                onDisconnectMicrosoft={microsoft.disconnect}
+                onCheckMicrosoftStatus={microsoft.checkStatus}
+                onRefreshMeetings={fetchMeetings}
+              />
+            </CardContent>
+          </Card>
+
+          {/* Recording Preferences */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Settings2 className="h-5 w-5 text-primary" />
+                <CardTitle>Aufnahme-Einstellungen</CardTitle>
+              </div>
+              <CardDescription>Konfiguriere, welche Meetings automatisch aufgezeichnet werden sollen</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="flex items-center justify-between" data-tour="auto-record">
+                <div className="space-y-0.5">
+                  <Label>Automatische Aufnahme</Label>
+                  <p className="text-sm text-muted-foreground">Bot tritt automatisch allen Meetings bei</p>
+                </div>
+                <Switch
+                  checked={preferences.auto_record}
+                  onCheckedChange={(checked) => updatePreferences({ auto_record: checked })}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Alle Meetings aufnehmen</Label>
+                  <p className="text-sm text-muted-foreground">Auch Meetings, zu denen du eingeladen wurdest</p>
+                </div>
+                <Switch
+                  checked={preferences.record_all}
+                  onCheckedChange={(checked) => updatePreferences({ record_all: checked })}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Nur eigene Meetings</Label>
+                  <p className="text-sm text-muted-foreground">Nur Meetings aufnehmen, die du organisiert hast</p>
+                </div>
+                <Switch
+                  checked={preferences.record_only_owned}
+                  onCheckedChange={(checked) => updatePreferences({ record_only_owned: checked })}
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Externe Meetings aufnehmen</Label>
+                  <p className="text-sm text-muted-foreground">Meetings mit externen Teilnehmern aufnehmen</p>
+                </div>
+                <Switch
+                  checked={preferences.record_external}
+                  onCheckedChange={(checked) => updatePreferences({ record_external: checked })}
+                />
               </div>
             </CardContent>
           </Card>
@@ -958,7 +1050,7 @@ const Settings = () => {
           </Card>
         </div>
       </div>
-    </div>
+    </AppLayout>
   );
 };
 
