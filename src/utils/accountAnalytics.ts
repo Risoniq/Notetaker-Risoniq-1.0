@@ -40,6 +40,13 @@ export interface MeetingEffectiveness {
   nextStepsPercentage: number; // Prozent der Meetings mit klaren Schritten
 }
 
+export interface ActionItemWithContext {
+  text: string;
+  meetingTitle: string;
+  meetingDate: string;
+  assignedTo: string | null;
+}
+
 export interface AccountAnalytics {
   totalMeetings: number;
   totalDurationMinutes: number;
@@ -59,6 +66,9 @@ export interface AccountAnalytics {
   
   // Zeitliche Daten fuer Charts
   weeklyData: WeeklyData[];
+  
+  // Alle To-Dos mit Meeting-Kontext
+  allActionItems: ActionItemWithContext[];
 }
 
 // Farben für Sprecher (konsistent mit deepDiveAnalysis)
@@ -192,6 +202,22 @@ export const calculateAccountAnalytics = (
   // Meeting-Effektivität berechnen
   const meetingEffectiveness = calculateMeetingEffectiveness(completedRecordings);
 
+  // Alle Action Items mit Meeting-Kontext sammeln
+  const allActionItemsList: ActionItemWithContext[] = [];
+  completedRecordings.forEach(recording => {
+    if (recording.action_items && Array.isArray(recording.action_items)) {
+      recording.action_items.forEach((item: string) => {
+        const assignedTo = extractAssignedPerson(item);
+        allActionItemsList.push({
+          text: item,
+          meetingTitle: recording.title || 'Unbenanntes Meeting',
+          meetingDate: recording.created_at,
+          assignedTo,
+        });
+      });
+    }
+  });
+
   // Wöchentliche Daten berechnen
   const weeklyMap: Map<string, { count: number; minutes: number }> = new Map();
   completedRecordings.forEach(recording => {
@@ -223,6 +249,7 @@ export const calculateAccountAnalytics = (
     aggregatedCustomerNeeds: uniqueNeeds,
     meetingEffectiveness,
     weeklyData,
+    allActionItems: allActionItemsList,
   };
 };
 
@@ -236,6 +263,20 @@ export const formatDuration = (minutes: number): string => {
   if (hours === 0) return `${mins}min`;
   if (mins === 0) return `${hours}h`;
   return `${hours}h ${mins}min`;
+};
+
+/**
+ * Extrahiert den zugewiesenen Verantwortlichen aus einem Action Item
+ */
+const extractAssignedPerson = (actionItem: string): string | null => {
+  for (const pattern of RESPONSIBILITY_PATTERNS) {
+    const match = actionItem.match(pattern);
+    if (match && match[1]) {
+      const name = match[1].trim();
+      if (name.length >= 2 && name.length <= 40) return name;
+    }
+  }
+  return null;
 };
 
 // Patterns für Verantwortlichkeiten in To-Dos
