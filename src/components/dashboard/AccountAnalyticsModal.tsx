@@ -1,61 +1,64 @@
+import { useState, useMemo } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { Users, Clock, CheckSquare, Lightbulb, MessageCircleQuestion, HeartHandshake, TrendingUp, Target } from "lucide-react";
-import { formatDuration, type AccountAnalytics } from "@/utils/accountAnalytics";
+import { Users, Clock, CheckSquare, MessageCircleQuestion, HeartHandshake, TrendingUp, Target, ListTodo, CalendarDays } from "lucide-react";
+import { formatDuration, type AccountAnalytics, type ActionItemWithContext } from "@/utils/accountAnalytics";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MeetingChatWidget } from "./MeetingChatWidget";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { format, parseISO, isThisWeek } from "date-fns";
+import { de } from "date-fns/locale";
+
 interface AccountAnalyticsModalProps {
   open: boolean;
   onClose: () => void;
   analytics: AccountAnalytics | null;
 }
+
 export const AccountAnalyticsModal = ({
   open,
   onClose,
   analytics
 }: AccountAnalyticsModalProps) => {
+  const [todoFilter, setTodoFilter] = useState<"week" | "all">("week");
+
   if (!analytics) return null;
 
   // Aggregierte Sprechanteile: Eigener Account vs. Andere
   const ownAccountTotal = analytics.aggregatedSpeakerShares.filter(s => !s.isCustomer).reduce((sum, s) => sum + s.percentage, 0);
   const othersTotal = analytics.aggregatedSpeakerShares.filter(s => s.isCustomer).reduce((sum, s) => sum + s.percentage, 0);
-  const speakerChartData = [{
-    name: "Eigener Account",
-    value: ownAccountTotal,
-    color: "hsl(210, 80%, 55%)"
-  }, {
-    name: "Andere",
-    value: othersTotal,
-    color: "hsl(150, 70%, 50%)"
-  }];
-  const contentChartData = [{
-    name: "Business",
-    value: analytics.aggregatedContentBreakdown.business,
-    color: "hsl(210, 80%, 55%)"
-  }, {
-    name: "Small Talk",
-    value: analytics.aggregatedContentBreakdown.smallTalk,
-    color: "hsl(45, 80%, 55%)"
-  }];
+  const speakerChartData = [
+    { name: "Eigener Account", value: ownAccountTotal, color: "hsl(210, 80%, 55%)" },
+    { name: "Andere", value: othersTotal, color: "hsl(150, 70%, 50%)" },
+  ];
+  const contentChartData = [
+    { name: "Business", value: analytics.aggregatedContentBreakdown.business, color: "hsl(210, 80%, 55%)" },
+    { name: "Small Talk", value: analytics.aggregatedContentBreakdown.smallTalk, color: "hsl(45, 80%, 55%)" },
+  ];
 
-  // Meeting-Effektivität Chart: Gewichteter Score aus 3 Faktoren
   const eff = analytics.meetingEffectiveness;
   const effectivenessScore = Math.round(
     (eff.assignedPercentage * 0.4) + 
     (eff.followUpPercentage * 0.3) + 
     (eff.nextStepsPercentage * 0.3)
   );
-  const effectivenessChartData = [{
-    name: "Effektiv",
-    value: effectivenessScore,
-    color: "hsl(150, 70%, 50%)"
-  }, {
-    name: "Potential",
-    value: 100 - effectivenessScore,
-    color: "hsl(0, 0%, 85%)"
-  }];
-  return <Sheet open={open} onOpenChange={isOpen => !isOpen && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-2xl overflow-hidden p-0">
+  const effectivenessChartData = [
+    { name: "Effektiv", value: effectivenessScore, color: "hsl(150, 70%, 50%)" },
+    { name: "Potential", value: 100 - effectivenessScore, color: "hsl(0, 0%, 85%)" },
+  ];
+
+  // To-Do Filterung
+  const thisWeekItems = analytics.allActionItems.filter(item => {
+    try {
+      return isThisWeek(parseISO(item.meetingDate), { weekStartsOn: 1 });
+    } catch { return false; }
+  });
+  const displayedItems = todoFilter === "week" ? thisWeekItems : analytics.allActionItems;
+
+  return (
+    <Sheet open={open} onOpenChange={isOpen => !isOpen && onClose()}>
+      <SheetContent side="right" className="w-full sm:max-w-4xl overflow-hidden p-0">
         <SheetHeader className="px-6 py-4 border-b">
           <SheetTitle className="flex items-center gap-2">
             <TrendingUp className="h-5 w-5 text-primary" />
@@ -75,7 +78,7 @@ export const AccountAnalyticsModal = ({
 
             {/* Pie Charts - 3er Grid */}
             <div className="grid grid-cols-3 gap-4">
-              {/* Sprechanteile: Eigener Account vs. Andere */}
+              {/* Sprechanteile */}
               <div className="bg-muted/30 rounded-xl p-4">
                 <h3 className="font-medium mb-2 text-sm">Sprechanteile</h3>
                 <div className="h-32">
@@ -88,12 +91,12 @@ export const AccountAnalyticsModal = ({
                   </ResponsiveContainer>
                 </div>
                 <div className="flex flex-col gap-1 mt-1">
-                  {speakerChartData.map((s, i) => <div key={i} className="flex items-center gap-2 text-xs">
-                      <div className="w-2 h-2 rounded-full" style={{
-                    backgroundColor: s.color
-                  }} />
+                  {speakerChartData.map((s, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
                       <span className="truncate">{s.name} {s.value}%</span>
-                    </div>)}
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -153,31 +156,103 @@ export const AccountAnalyticsModal = ({
               </div>
             </div>
 
+            {/* To-Do Übersicht */}
+            <div className="bg-muted/30 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <ListTodo className="h-4 w-4 text-primary" />
+                  Meine To-Dos
+                </h3>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setTodoFilter("week")}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      todoFilter === "week"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background/50 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      <CalendarDays className="h-3 w-3" />
+                      Diese Woche
+                      <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] h-4">
+                        {thisWeekItems.length}
+                      </Badge>
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => setTodoFilter("all")}
+                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${
+                      todoFilter === "all"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-background/50 text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1">
+                      Alle
+                      <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-[10px] h-4">
+                        {analytics.allActionItems.length}
+                      </Badge>
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {displayedItems.length > 0 ? (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {displayedItems.map((item, i) => (
+                    <div key={i} className="flex items-start gap-3 bg-background/50 rounded-lg px-3 py-2.5">
+                      <Checkbox className="mt-0.5 shrink-0" disabled />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm line-clamp-2">{item.text}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                          <span className="truncate max-w-[200px]">{item.meetingTitle}</span>
+                          <span>·</span>
+                          <span className="shrink-0">
+                            {(() => {
+                              try { return format(parseISO(item.meetingDate), 'dd.MM.yyyy', { locale: de }); }
+                              catch { return ''; }
+                            })()}
+                          </span>
+                          {item.assignedTo && (
+                            <>
+                              <span>·</span>
+                              <span className="text-primary font-medium truncate max-w-[120px]">→ {item.assignedTo}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  {todoFilter === "week" ? "Keine To-Dos diese Woche" : "Keine To-Dos vorhanden"}
+                </p>
+              )}
+            </div>
+
             {/* Meetings pro Woche - Line Chart */}
-            {analytics.weeklyData.length > 1 && <div className="bg-muted/30 rounded-xl p-4">
+            {analytics.weeklyData.length > 1 && (
+              <div className="bg-muted/30 rounded-xl p-4">
                 <h3 className="font-medium mb-4">Meetings pro Woche</h3>
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={analytics.weeklyData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="week" tick={{
-                    fontSize: 12
-                  }} stroke="hsl(var(--muted-foreground))" />
-                      <YAxis tick={{
-                    fontSize: 12
-                  }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
+                      <XAxis dataKey="week" tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" />
+                      <YAxis tick={{ fontSize: 12 }} stroke="hsl(var(--muted-foreground))" allowDecimals={false} />
                       <Tooltip contentStyle={{
-                    backgroundColor: 'hsl(var(--background))',
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} formatter={(value: number) => [`${value} Meetings`, 'Anzahl']} />
-                      <Line type="monotone" dataKey="count" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={{
-                    fill: 'hsl(210, 80%, 55%)'
-                  }} />
+                        backgroundColor: 'hsl(var(--background))',
+                        border: '1px solid hsl(var(--border))',
+                        borderRadius: '8px'
+                      }} formatter={(value: number) => [`${value} Meetings`, 'Anzahl']} />
+                      <Line type="monotone" dataKey="count" stroke="hsl(210, 80%, 55%)" strokeWidth={2} dot={{ fill: 'hsl(210, 80%, 55%)' }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
-              </div>}
+              </div>
+            )}
 
             {/* Meeting Chat Widget */}
             <MeetingChatWidget />
@@ -189,15 +264,15 @@ export const AccountAnalyticsModal = ({
                 Top Sprecher
               </h3>
               <div className="space-y-2">
-                {analytics.aggregatedSpeakerShares.slice(0, 5).map((speaker, i) => <div key={i} className="flex items-center justify-between text-sm bg-background/50 rounded-lg px-3 py-2">
+                {analytics.aggregatedSpeakerShares.slice(0, 5).map((speaker, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm bg-background/50 rounded-lg px-3 py-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{
-                    backgroundColor: speaker.color
-                  }} />
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: speaker.color }} />
                       <span className="truncate max-w-[200px]">{speaker.name}</span>
                     </div>
                     <span className="text-muted-foreground">{speaker.percentage}%</span>
-                  </div>)}
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -207,14 +282,18 @@ export const AccountAnalyticsModal = ({
                 <HeartHandshake className="h-4 w-4 text-primary" />
                 Häufigste Bedürfnisse
               </h3>
-              {analytics.aggregatedCustomerNeeds.length > 0 ? <div className="space-y-2">
-                  {analytics.aggregatedCustomerNeeds.slice(0, 5).map((need, i) => <div key={i} className="text-sm bg-background/50 rounded-lg px-3 py-2">
+              {analytics.aggregatedCustomerNeeds.length > 0 ? (
+                <div className="space-y-2">
+                  {analytics.aggregatedCustomerNeeds.slice(0, 5).map((need, i) => (
+                    <div key={i} className="text-sm bg-background/50 rounded-lg px-3 py-2">
                       <p className="line-clamp-2">{need.need}</p>
                       <p className="text-xs text-muted-foreground mt-1">— {need.speaker}</p>
-                    </div>)}
-                </div> : <p className="text-sm text-muted-foreground">
-                  Keine Kundenbedürfnisse erkannt
-                </p>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Keine Kundenbedürfnisse erkannt</p>
+              )}
             </div>
 
             {/* Offene Fragen */}
@@ -222,7 +301,8 @@ export const AccountAnalyticsModal = ({
           </div>
         </ScrollArea>
       </SheetContent>
-    </Sheet>;
+    </Sheet>
+  );
 };
 
 // Stat Card Komponente
@@ -234,8 +314,10 @@ const StatCard = ({
   icon: React.ReactNode;
   value: string | number;
   label: string;
-}) => <div className="bg-muted/30 rounded-xl p-3 text-center">
+}) => (
+  <div className="bg-muted/30 rounded-xl p-3 text-center">
     <div className="flex justify-center text-primary mb-1">{icon}</div>
     <p className="text-xl font-semibold">{value}</p>
     <p className="text-xs text-muted-foreground">{label}</p>
-  </div>;
+  </div>
+);
