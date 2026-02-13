@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Users, X, UserPlus, Loader2 } from "lucide-react";
+import { Users, X, UserPlus, Loader2, ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -180,10 +180,13 @@ export function TeamShareDropdown({ recordingId }: TeamShareDropdownProps) {
       {teamMembers.length > 0 && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline" size="sm" className="h-7 text-xs border-dashed gap-1 text-foreground">
-              <UserPlus className="h-3 w-3" />
-              Mit Team teilen...
-            </Button>
+            <button className="flex h-7 w-auto min-w-[140px] items-center justify-between gap-2 rounded-xl border border-dashed border-input bg-background px-3 text-xs text-foreground ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+              <span className="flex items-center gap-1">
+                <UserPlus className="h-3 w-3" />
+                Mit Team teilen...
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </button>
           </PopoverTrigger>
           <PopoverContent className="w-72 p-2" align="start">
             {isSaving && (
