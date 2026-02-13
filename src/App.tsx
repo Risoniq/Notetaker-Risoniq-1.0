@@ -11,7 +11,6 @@ import { ImpersonationProvider } from "@/contexts/ImpersonationContext";
 import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
-import Calendar from "./pages/Calendar";
 import CalendarCallback from "./pages/CalendarCallback";
 import MeetingDetail from "./pages/MeetingDetail";
 import Settings from "./pages/Settings";
@@ -36,7 +35,7 @@ const App = () => (
         <Routes>
           <Route path="/auth" element={<Auth />} />
           <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-          <Route path="/calendar" element={<ProtectedRoute><Calendar /></ProtectedRoute>} />
+          <Route path="/calendar" element={<Navigate to="/settings" replace />} />
           <Route path="/recordings" element={<ProtectedRoute><Recordings /></ProtectedRoute>} />
           <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
           <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
