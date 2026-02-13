@@ -39,14 +39,22 @@ function getCorsHeaders(req: Request) {
   };
 }
 
-// Helper: Authenticate user from request
-async function authenticateUser(req: Request): Promise<{ user: { id: string } | null; error?: string }> {
+// Helper: Authenticate user from request (supports user JWT and service role key)
+async function authenticateUser(req: Request): Promise<{ user: { id: string } | null; isServiceRole?: boolean; error?: string }> {
   const authHeader = req.headers.get('Authorization');
   if (!authHeader) {
     return { user: null, error: 'Authorization header required' };
   }
 
   const token = authHeader.replace('Bearer ', '');
+  
+  // Check if the token is the service role key (used by auto-sync cron job)
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (serviceRoleKey && token === serviceRoleKey) {
+    console.log('[Auth] Service role key authentication - internal cron call');
+    return { user: { id: 'service-role' }, isServiceRole: true };
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
   const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
   const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -70,7 +78,7 @@ Deno.serve(async (req) => {
 
   try {
     // 1. Authenticate user
-    const { user, error: authError } = await authenticateUser(req);
+    const { user, isServiceRole, error: authError } = await authenticateUser(req);
     if (!user) {
       return new Response(
         JSON.stringify({ error: authError || 'Unauthorized' }),
@@ -114,8 +122,8 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 5. Verify ownership - user can only sync their own recordings (admins can access all)
-    if (recording.user_id && recording.user_id !== user.id) {
+    // 5. Verify ownership - service role bypasses, admins can access all
+    if (!isServiceRole && recording.user_id && recording.user_id !== user.id) {
       // Check if user is admin
       const { data: adminCheck } = await supabase
         .from('user_roles')
