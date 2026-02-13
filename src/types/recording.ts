@@ -21,6 +21,8 @@ export interface Recording {
   action_items: string[] | null;
   word_count: number | null;
   participants: RecordingParticipant[] | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  calendar_attendees: any;
   source: string | null;
   deleted_at: string | null;
 }
