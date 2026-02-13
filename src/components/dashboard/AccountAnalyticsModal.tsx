@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
-import { Users, Clock, CheckSquare, MessageCircleQuestion, HeartHandshake, TrendingUp, Target, ListTodo, CalendarDays } from "lucide-react";
+import { Users, Clock, CheckSquare, MessageCircleQuestion, TrendingUp, Target, ListTodo, CalendarDays } from "lucide-react";
 import { formatDuration, type AccountAnalytics, type ActionItemWithContext } from "@/utils/accountAnalytics";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { MeetingChatWidget } from "./MeetingChatWidget";
@@ -257,47 +257,6 @@ export const AccountAnalyticsModal = ({
             {/* Meeting Chat Widget */}
             <MeetingChatWidget />
 
-            {/* Top Sprecher */}
-            <div className="bg-muted/30 rounded-xl p-4">
-              <h3 className="font-medium mb-3 flex items-center gap-2">
-                <Users className="h-4 w-4 text-primary" />
-                Top Sprecher
-              </h3>
-              <div className="space-y-2">
-                {analytics.aggregatedSpeakerShares.slice(0, 5).map((speaker, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm bg-background/50 rounded-lg px-3 py-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: speaker.color }} />
-                      <span className="truncate max-w-[200px]">{speaker.name}</span>
-                    </div>
-                    <span className="text-muted-foreground">{speaker.percentage}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Kundenbedürfnisse */}
-            <div className="bg-muted/30 rounded-xl p-4">
-              <h3 className="font-medium mb-3 flex items-center gap-2">
-                <HeartHandshake className="h-4 w-4 text-primary" />
-                Häufigste Bedürfnisse
-              </h3>
-              {analytics.aggregatedCustomerNeeds.length > 0 ? (
-                <div className="space-y-2">
-                  {analytics.aggregatedCustomerNeeds.slice(0, 5).map((need, i) => (
-                    <div key={i} className="text-sm bg-background/50 rounded-lg px-3 py-2">
-                      <p className="line-clamp-2">{need.need}</p>
-                      <p className="text-xs text-muted-foreground mt-1">— {need.speaker}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Keine Kundenbedürfnisse erkannt</p>
-              )}
-            </div>
-
-            {/* Offene Fragen */}
-            {analytics.aggregatedOpenQuestions.length > 0}
           </div>
         </ScrollArea>
       </SheetContent>
