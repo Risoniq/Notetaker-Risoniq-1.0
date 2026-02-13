@@ -813,10 +813,6 @@ export default function MeetingDetail() {
                 {isSyncing ? 'Synchronisiere...' : 'Aktualisieren'}
               </Button>
             )}
-            <Badge className={`shrink-0 px-4 py-1.5 text-sm rounded-full ${getStatusColor(recording.status)}`}>
-              {getStatusLabel(recording.status)}
-              {isSyncing && <RefreshCw className="h-3 w-3 ml-1.5 animate-spin inline" />}
-            </Badge>
           </div>
         </div>
 
