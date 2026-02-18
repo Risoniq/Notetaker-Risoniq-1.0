@@ -9,6 +9,7 @@ import { IFDTimeline } from "@/components/projects/IFDTimeline";
 import { IFDSpeakerTrend } from "@/components/projects/IFDSpeakerTrend";
 import { IFDTopicCloud } from "@/components/projects/IFDTopicCloud";
 import { IFDProactivityRadar } from "@/components/projects/IFDProactivityRadar";
+import { ProjectChatWidget } from "@/components/projects/ProjectChatWidget";
 import { AssignRecordingsDialog } from "@/components/projects/AssignRecordingsDialog";
 import { InviteToProjectDialog } from "@/components/projects/InviteToProjectDialog";
 import { Button } from "@/components/ui/button";
@@ -183,6 +184,7 @@ export default function ProjectDetail() {
               <IFDTopicCloud recordings={recordings} analysis={analysis} />
             </div>
             <IFDProactivityRadar recordings={recordings} analysis={analysis} />
+            <ProjectChatWidget projectId={id!} projectName={project.name} />
           </>
         )}
 
