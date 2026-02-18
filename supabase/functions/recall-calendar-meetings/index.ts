@@ -123,6 +123,27 @@ Deno.serve(async (req) => {
         );
       }
 
+      // Re-sync preferences to Recall.ai on every list call to ensure consistency
+      try {
+        const { data: calUser } = await supabase
+          .from('recall_calendar_users')
+          .select('recording_preferences, bot_name, bot_avatar_url')
+          .eq('supabase_user_id', supabaseUserId)
+          .maybeSingle();
+        
+        if (calUser?.recording_preferences) {
+          const prefs = calUser.recording_preferences;
+          const botConfig = {
+            bot_name: calUser.bot_name || undefined,
+            bot_avatar_url: calUser.bot_avatar_url || undefined,
+          };
+          console.log('[list] Re-syncing preferences to Recall.ai, auto_record:', prefs.auto_record);
+          await syncPreferencesToRecall(recallUserId, prefs, botConfig);
+        }
+      } catch (syncErr) {
+        console.error('[list] Non-critical: preference sync failed:', syncErr);
+      }
+
       // Get a fresh calendar auth token for this user
       const authResponse = await fetch('https://eu-central-1.recall.ai/api/v1/calendar/authenticate/', {
         method: 'POST',
