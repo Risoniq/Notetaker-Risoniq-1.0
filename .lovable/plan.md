@@ -1,69 +1,58 @@
 
 
-# Fix: Bot tritt automatisch Meetings bei trotz deaktivierter Einstellung
+# Verbesserung der To-Do/Action-Item-Erkennung
 
 ## Problem
 
-Die Code-Aenderung von `syncPreferencesToRecall` ist korrekt implementiert, aber es gibt zwei verbleibende Probleme:
+Aktuell werden zu viele Action Items erkannt. Einzelne Kommentare oder beilaeufige Erwahnungen loesen bereits To-Dos aus, obwohl sie keine echten Aufgaben sind. Es fehlt eine striktere Unterscheidung zwischen:
+- Echten, zugewiesenen Aufgaben ("Max, kannst du bis Freitag den Bericht schicken?")
+- Beilaeufigen Kommentaren ("Man koennte mal darueber nachdenken...")
 
-1. **Bestehende Nutzer**: 4 von 7 Nutzern haben noch `auto_record: true` in der Datenbank. Ihre Recall.ai-Einstellungen wurden seit dem Fix nicht neu synchronisiert.
-2. **Kein automatischer Re-Sync**: Die Praeferenzen werden nur bei explizitem `update_preferences`-Aufruf an Recall.ai gesendet. Wenn ein Nutzer die Einstellungen nie aendert, bleibt der alte (falsche) Zustand bei Recall.ai bestehen.
+## Betroffene Stellen
+
+Es gibt **zwei** Stellen, die Action Items generieren:
+
+1. **KI-basierte Analyse** (`supabase/functions/analyze-transcript/index.ts`, Zeilen 200-209): Der System-Prompt fuer die KI-Analyse. Dies ist die primaere und wichtigste Stelle, da sie fuer alle Bot-Aufnahmen und Audio-Uploads greift.
+
+2. **Lokale Fallback-Analyse** (`src/utils/meetingAnalysis.ts`, Zeilen 17-24): Einfache Keyword-Suche (z.B. "muss", "soll", "todo") als Fallback. Diese ist sehr ungenau und erkennt jeden Satz mit diesen Woertern als Action Item.
 
 ## Loesung
 
-### Schritt 1: Bestehende Nutzer auf `auto_record: false` setzen
+### Aenderung 1: KI-Prompt verschaerfen (Edge Function)
 
-Alle Nutzer, die noch `auto_record: true` haben, werden per Daten-Update auf `false` gesetzt (ausser sie haben es bewusst aktiviert). Da das Problem war, dass der Default `true` war, muessen wir davon ausgehen, dass keiner dieser Nutzer die Funktion bewusst aktiviert hat.
+**Datei:** `supabase/functions/analyze-transcript/index.ts`
 
-```sql
-UPDATE recall_calendar_users
-SET recording_preferences = jsonb_set(recording_preferences, '{auto_record}', 'false')
-WHERE recording_preferences->>'auto_record' = 'true';
+Der Action-Items-Abschnitt im System-Prompt (Zeilen 200-209) wird durch deutlich strengere Kriterien ersetzt:
+
+```
+WICHTIGE REGELN FUER ACTION ITEMS:
+- Ein Action Item ist NUR eine konkrete, umsetzbare Aufgabe, die EXPLIZIT
+  vereinbart, zugesagt oder zugewiesen wurde
+- Es muessen MINDESTENS zwei der folgenden Kriterien erfuellt sein:
+  a) Klare Handlung (z.B. "schicken", "erstellen", "pruefen", "organisieren")
+  b) Verantwortliche Person (namentlich genannt oder "ich mache das")
+  c) Zeitrahmen oder Deadline (z.B. "bis Freitag", "naechste Woche")
+- KEINE Action Items aus:
+  - Allgemeinen Ueberlegungen ("man koennte...", "waere gut wenn...")
+  - Wuenschen oder Hoffnungen ("ich hoffe...", "vielleicht...")
+  - Einzelnen Kommentaren oder Meinungsaeusserungen
+  - Wiederholungen desselben Punkts (nur einmal erfassen)
+  - Kontextlosen Erwahnungen von Taetigkeiten in der Vergangenheit
+- Fasse zusammengehoerige Aufgaben zu EINEM Action Item zusammen
+- Maximal 8 Action Items pro Meeting - nur die wichtigsten
+- Im Zweifel ist es KEIN Action Item
 ```
 
-### Schritt 2: Praeferenz-Sync bei jedem Kalenderseiten-Aufruf
+### Aenderung 2: Lokale Analyse verbessern (Frontend-Fallback)
 
-In `supabase/functions/recall-calendar-meetings/index.ts` wird beim `list`-Action ein automatischer Re-Sync der Praeferenzen an Recall.ai ausgefuehrt. Damit wird sichergestellt, dass Recall.ai immer den aktuellen Stand aus der Datenbank hat.
+**Datei:** `src/utils/meetingAnalysis.ts`
 
-**Datei:** `supabase/functions/recall-calendar-meetings/index.ts`
-
-Innerhalb des `if (action === 'list')` Blocks, nach dem Abruf der `recallUserId`, wird folgender Code eingefuegt:
-
-```typescript
-// Re-sync preferences to Recall.ai on every list call to ensure consistency
-try {
-  const { data: calUser } = await supabase
-    .from('recall_calendar_users')
-    .select('recording_preferences, bot_name, bot_avatar_url')
-    .eq('supabase_user_id', supabaseUserId)
-    .maybeSingle();
-  
-  if (calUser?.recording_preferences) {
-    const prefs = calUser.recording_preferences;
-    const botConfig = {
-      bot_name: calUser.bot_name || undefined,
-      bot_avatar_url: calUser.bot_avatar_url || undefined,
-    };
-    console.log('[list] Re-syncing preferences to Recall.ai, auto_record:', prefs.auto_record);
-    await syncPreferencesToRecall(recallUserId, prefs, botConfig);
-  }
-} catch (syncErr) {
-  console.error('[list] Non-critical: preference sync failed:', syncErr);
-}
-```
-
-Dies stellt sicher, dass beim naechsten Oeffnen der Kalenderseite (oder jedem API-Aufruf der Meeting-Liste) die korrekten Praeferenzen an Recall.ai uebertragen werden.
-
-## Zusammenfassung
-
-| Aenderung | Typ |
-|-----------|-----|
-| `recall_calendar_users.recording_preferences` auf `auto_record: false` fuer alle bestehenden Nutzer | Daten-Update |
-| Re-Sync bei `list`-Action in `recall-calendar-meetings` Edge Function | Code-Aenderung |
+Die einfache Keyword-Suche wird durch eine strengere Logik ersetzt, die mindestens zwei Indikatoren pro Satz erfordert (z.B. ein Aktionswort UND ein Verantwortlichkeits-Indikator), anstatt bei jedem Vorkommen von "muss" oder "soll" einen Action Item zu erstellen.
 
 ## Erwartetes Ergebnis
 
-- Alle bestehenden Nutzer haben `auto_record: false` in der Datenbank
-- Beim naechsten Laden der Kalenderseite wird Recall.ai automatisch mit `record_external: false` und `record_internal: false` konfiguriert
-- Der Bot tritt bei keinem Meeting mehr automatisch bei, bis der Nutzer dies explizit aktiviert
+- Deutlich weniger, aber praezisere Action Items
+- Nur echte Vereinbarungen und Zusagen werden erfasst
+- Beilaeufige Kommentare loesen keine To-Dos mehr aus
+- Zusammengehoerige Aufgaben werden gebundelt statt einzeln aufgelistet
 
