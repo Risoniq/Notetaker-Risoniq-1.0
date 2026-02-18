@@ -122,3 +122,6 @@ verify_jwt = false
 
 [functions.auto-sync-recordings]
 verify_jwt = false
+
+[functions.project-chat]
+verify_jwt = false
