@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Check } from "lucide-react";
@@ -37,42 +37,44 @@ export function AssignRecordingsDialog({ projectId }: Props) {
   );
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
         <Button variant="outline" size="sm">
           <Plus className="h-4 w-4 mr-2" />
           Meetings zuordnen
         </Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[80vh]">
-        <DialogHeader>
-          <DialogTitle>Meetings zuordnen</DialogTitle>
-        </DialogHeader>
-        <Input placeholder="Suchen..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <div className="space-y-2 max-h-[50vh] overflow-y-auto mt-2">
+      </PopoverTrigger>
+      <PopoverContent className="w-96 p-0" align="end">
+        <div className="p-3 border-b">
+          <Input
+            placeholder="Suchen..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8"
+          />
+        </div>
+        <div className="max-h-[60vh] overflow-y-auto p-2 space-y-1">
           {filtered.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-4">Keine Meetings verfügbar</p>
           )}
           {filtered.map((r) => (
-            <div key={r.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors">
-              <div>
-                <p className="text-sm font-medium">{r.title || "Ohne Titel"}</p>
+            <button
+              key={r.id}
+              className="flex items-center justify-between w-full p-2 rounded-md text-left hover:bg-muted/50 transition-colors"
+              onClick={() => assignRecording.mutateAsync({ projectId, recordingId: r.id })}
+              disabled={assignRecording.isPending}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{r.title || "Ohne Titel"}</p>
                 <p className="text-xs text-muted-foreground">
                   {new Date(r.created_at).toLocaleDateString("de-DE")}
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => assignRecording.mutateAsync({ projectId, recordingId: r.id })}
-                disabled={assignRecording.isPending}
-              >
-                <Check className="h-4 w-4" />
-              </Button>
-            </div>
+              <Check className="h-4 w-4 ml-2 shrink-0 text-muted-foreground" />
+            </button>
           ))}
         </div>
-      </DialogContent>
-    </Dialog>
+      </PopoverContent>
+    </Popover>
   );
 }
