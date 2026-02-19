@@ -18,13 +18,13 @@ export const tourSteps: TourStepConfig[] = [
     action: "none",
   },
   {
-    id: "calendar-nav",
-    title: "Kalender-Seite",
-    description: "Klicke hier, um zur Kalender-Verwaltung zu gelangen.",
-    targetSelector: '[data-tour="calendar-nav"]',
+    id: "settings-nav",
+    title: "Einstellungen",
+    description: "Klicke hier, um zu den Einstellungen zu gelangen. Dort verbindest du deinen Kalender.",
+    targetSelector: '[data-tour="settings-nav"]',
     position: "bottom",
     action: "navigate",
-    actionTarget: "/calendar",
+    actionTarget: "/settings",
   },
   {
     id: "calendar-connect",

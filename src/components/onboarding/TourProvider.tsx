@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface TourContextType {
   isActive: boolean;
@@ -10,6 +11,9 @@ interface TourContextType {
   skipTour: () => void;
   endTour: () => void;
   goToStep: (step: number) => void;
+  isLoading: boolean;
+  tourCompleted: boolean;
+  checkTourStatus: () => Promise<boolean>;
 }
 
 const TourContext = createContext<TourContextType | undefined>(undefined);
@@ -18,9 +22,51 @@ const STORAGE_KEY_COMPLETED = "onboarding:tour_completed";
 const STORAGE_KEY_SKIPPED = "onboarding:tour_skipped";
 const TOTAL_STEPS = 4;
 
+async function markTourCompletedInDB() {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  await supabase.from("onboarding_status" as any).upsert(
+    { user_id: user.id, tour_completed: true, completed_at: new Date().toISOString() } as any,
+    { onConflict: "user_id" }
+  );
+}
+
+async function fetchTourStatus(): Promise<boolean | null> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from("onboarding_status" as any)
+    .select("tour_completed")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!data) return false; // No row = never completed
+  return (data as any).tour_completed === true;
+}
+
 export function TourProvider({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [tourCompleted, setTourCompleted] = useState(false);
+
+  const checkTourStatus = useCallback(async (): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      const completed = await fetchTourStatus();
+      if (completed === null) return true; // no user
+      setTourCompleted(completed);
+      // Also sync localStorage
+      if (completed) {
+        localStorage.setItem(STORAGE_KEY_COMPLETED, "true");
+      }
+      return completed;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   const startTour = useCallback(() => {
     setCurrentStep(0);
@@ -36,6 +82,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(STORAGE_KEY_SKIPPED);
       setIsActive(false);
       setCurrentStep(0);
+      setTourCompleted(true);
+      markTourCompletedInDB();
     }
   }, [currentStep]);
 
@@ -49,6 +97,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY_SKIPPED, "true");
     setIsActive(false);
     setCurrentStep(0);
+    setTourCompleted(true);
+    markTourCompletedInDB();
   }, []);
 
   const endTour = useCallback(() => {
@@ -56,6 +106,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(STORAGE_KEY_SKIPPED);
     setIsActive(false);
     setCurrentStep(0);
+    setTourCompleted(true);
+    markTourCompletedInDB();
   }, []);
 
   const goToStep = useCallback((step: number) => {
@@ -76,6 +128,9 @@ export function TourProvider({ children }: { children: ReactNode }) {
         skipTour,
         endTour,
         goToStep,
+        isLoading,
+        tourCompleted,
+        checkTourStatus,
       }}
     >
       {children}

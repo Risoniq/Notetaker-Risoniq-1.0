@@ -56,6 +56,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               <NavLink
                 key={item.url}
                 to={item.url}
+                data-tour={item.url === "/settings" ? "settings-nav" : undefined}
                 className={cn(
                   "flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all duration-200",
                   isActive

@@ -14,6 +14,23 @@ interface SpotlightRect {
   height: number;
 }
 
+function waitForElement(selector: string, maxWait = 1500): Promise<Element | null> {
+  return new Promise((resolve) => {
+    const el = document.querySelector(selector);
+    if (el) return resolve(el);
+
+    let elapsed = 0;
+    const interval = setInterval(() => {
+      elapsed += 100;
+      const found = document.querySelector(selector);
+      if (found || elapsed >= maxWait) {
+        clearInterval(interval);
+        resolve(found);
+      }
+    }, 100);
+  });
+}
+
 export function OnboardingTour() {
   const { isActive, currentStep, totalSteps, nextStep, prevStep, skipTour, endTour } = useTourContext();
   const navigate = useNavigate();
@@ -24,12 +41,11 @@ export function OnboardingTour() {
 
   const currentStepConfig: TourStepConfig | undefined = tourSteps[currentStep];
 
-  const calculatePositions = useCallback(() => {
+  const calculatePositions = useCallback(async () => {
     if (!currentStepConfig) return;
 
     if (currentStepConfig.position === "center" || !currentStepConfig.targetSelector) {
       setSpotlight(null);
-      // Center the tooltip
       const tooltipWidth = tooltipRef.current?.offsetWidth || 400;
       const tooltipHeight = tooltipRef.current?.offsetHeight || 200;
       setTooltipPosition({
@@ -39,9 +55,8 @@ export function OnboardingTour() {
       return;
     }
 
-    const target = document.querySelector(currentStepConfig.targetSelector);
+    const target = await waitForElement(currentStepConfig.targetSelector);
     if (!target) {
-      // Element not found, might need navigation
       setSpotlight(null);
       return;
     }
@@ -49,7 +64,6 @@ export function OnboardingTour() {
     const rect = target.getBoundingClientRect();
     const padding = 8;
 
-    // Set spotlight
     setSpotlight({
       top: rect.top - padding,
       left: rect.left - padding,
@@ -57,7 +71,6 @@ export function OnboardingTour() {
       height: rect.height + padding * 2,
     });
 
-    // Calculate tooltip position based on step config
     const tooltipWidth = tooltipRef.current?.offsetWidth || 400;
     const tooltipHeight = tooltipRef.current?.offsetHeight || 200;
     const gap = 16;
@@ -84,33 +97,17 @@ export function OnboardingTour() {
         break;
     }
 
-    // Keep tooltip within viewport
     top = Math.max(20, Math.min(top, window.innerHeight - tooltipHeight - 20));
     left = Math.max(20, Math.min(left, window.innerWidth - tooltipWidth - 20));
 
     setTooltipPosition({ top, left });
   }, [currentStepConfig]);
 
-  // Handle navigation for steps that require it
-  useEffect(() => {
-    if (!isActive || !currentStepConfig) return;
-
-    // Check if we need to navigate for this step
-    if (currentStepConfig.action === "navigate" && currentStepConfig.actionTarget) {
-      const targetPath = currentStepConfig.actionTarget;
-      if (location.pathname !== targetPath) {
-        // We're on step 1 (calendar-nav), user sees the nav item highlighted
-        // Don't navigate automatically, let them click or press next
-      }
-    }
-  }, [isActive, currentStepConfig, location.pathname]);
-
   // Recalculate positions when step changes or window resizes
   useEffect(() => {
     if (!isActive) return;
 
-    // Small delay to allow DOM updates
-    const timer = setTimeout(calculatePositions, 100);
+    const timer = setTimeout(() => calculatePositions(), 100);
 
     const handleResize = () => calculatePositions();
     window.addEventListener("resize", handleResize);
@@ -122,21 +119,16 @@ export function OnboardingTour() {
   }, [isActive, currentStep, calculatePositions, location.pathname]);
 
   const handleNext = () => {
-    // If current step requires navigation, do it before moving to next step
     if (currentStepConfig?.action === "navigate" && currentStepConfig.actionTarget) {
       const targetPath = currentStepConfig.actionTarget;
       if (location.pathname !== targetPath) {
         navigate(targetPath);
-        // Small delay before advancing to allow navigation to complete
-        setTimeout(() => nextStep(), 300);
+        // Wait for navigation + element to appear before advancing
+        setTimeout(() => nextStep(), 400);
         return;
       }
     }
     nextStep();
-  };
-
-  const handlePrev = () => {
-    prevStep();
   };
 
   if (!isActive || !currentStepConfig) return null;
@@ -174,7 +166,6 @@ export function OnboardingTour() {
           />
         </svg>
 
-        {/* Spotlight glow effect */}
         {spotlight && (
           <div
             className="absolute rounded-xl ring-4 ring-primary/50 ring-offset-2 ring-offset-transparent animate-pulse pointer-events-none"
@@ -198,7 +189,6 @@ export function OnboardingTour() {
         }}
       >
         <GlassCard className="p-5 shadow-2xl border-primary/20">
-          {/* Close button */}
           <button
             onClick={skipTour}
             className="absolute top-3 right-3 p-1 rounded-full hover:bg-muted/50 transition-colors text-muted-foreground hover:text-foreground"
@@ -206,7 +196,6 @@ export function OnboardingTour() {
             <X className="h-4 w-4" />
           </button>
 
-          {/* Header with icon */}
           <div className="flex items-start gap-3 mb-3">
             <div className="p-2 rounded-lg bg-primary/10 shrink-0">
               <Sparkles className="h-5 w-5 text-primary" />
@@ -218,14 +207,11 @@ export function OnboardingTour() {
             </div>
           </div>
 
-          {/* Description */}
           <p className="text-muted-foreground text-sm mb-5 leading-relaxed">
             {currentStepConfig.description}
           </p>
 
-          {/* Progress and Navigation */}
           <div className="flex items-center justify-between">
-            {/* Progress indicator */}
             <div className="flex items-center gap-1.5">
               {Array.from({ length: totalSteps }).map((_, i) => (
                 <div
@@ -242,33 +228,19 @@ export function OnboardingTour() {
               ))}
             </div>
 
-            {/* Navigation buttons */}
             <div className="flex items-center gap-2">
               {!isFirstStep && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handlePrev}
-                  className="gap-1"
-                >
+                <Button variant="ghost" size="sm" onClick={prevStep} className="gap-1">
                   <ChevronLeft className="h-4 w-4" />
                   Zurück
                 </Button>
               )}
               {isFirstStep && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={skipTour}
-                >
+                <Button variant="ghost" size="sm" onClick={skipTour}>
                   Überspringen
                 </Button>
               )}
-              <Button
-                size="sm"
-                onClick={isLastStep ? endTour : handleNext}
-                className="gap-1"
-              >
+              <Button size="sm" onClick={isLastStep ? endTour : handleNext} className="gap-1">
                 {isLastStep ? "Fertig" : "Weiter"}
                 {!isLastStep && <ChevronRight className="h-4 w-4" />}
               </Button>
