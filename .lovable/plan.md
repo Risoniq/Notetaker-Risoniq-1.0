@@ -1,88 +1,66 @@
 
 
-# Fix: Einfuehrungstour - Navigation, Spotlight und einmaliger Start
+# Header-Umbau und Quick-Recording per Mikrofon-Button
 
-## Probleme
+## Uebersicht
 
-### 1. Tour-Elemente werden nicht gefunden
-- Step 1 sucht `[data-tour="calendar-nav"]` -- dieses Attribut existiert nirgends in der Navigation
-- Step 1 navigiert zu `/calendar`, aber diese Route leitet auf `/settings` weiter -- die Navigation kommt nie am richtigen Ziel an
-- Steps 2-3 zeigen auf Elemente auf der Settings-Seite, aber die Tour navigiert nicht zuverlaessig dorthin
+Drei Aenderungen am Header der App (`AppLayout.tsx`) und ein neuer Hook fuer die Quick-Recording-Funktionalitaet:
 
-### 2. Tour startet nach jedem Login
-- Der Tour-Status wird in `localStorage` gespeichert (browserspezifisch)
-- Wenn ein User den Browser wechselt, Daten loescht oder ein anderes Geraet nutzt, startet die Tour erneut
-- Loesung: Tour-Status in der Datenbank pro User speichern
+1. **ThemeToggle** (Dark/Light-Modus) wandert von rechts nach links oben
+2. **Mikrofon-Icon** (Logo) wandert von links oben nach rechts oben in die Navigation
+3. **Klick auf das Mikrofon** startet sofort eine Bildschirm- und Mikrofon-Aufnahme, speichert das Ergebnis als Recording in der Datenbank und sendet es zur Transkription
 
----
+## Aenderungen im Detail
 
-## Aenderungen
+### 1. Header-Layout aendern (`src/components/layout/AppLayout.tsx`)
 
-### A. Datenbank: Tour-Status pro User speichern
-
-Neue Spalte `tour_completed` (boolean, default false) in einer bestehenden User-Tabelle oder als eigene kleine Tabelle:
-
-```sql
-CREATE TABLE public.onboarding_status (
-  user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  tour_completed boolean NOT NULL DEFAULT false,
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-ALTER TABLE public.onboarding_status ENABLE ROW LEVEL SECURITY;
-
--- User kann eigenen Status lesen und aendern
-CREATE POLICY "Users can view own onboarding status"
-  ON public.onboarding_status FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own onboarding status"
-  ON public.onboarding_status FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own onboarding status"
-  ON public.onboarding_status FOR UPDATE
-  USING (auth.uid() = user_id);
+Aktuelles Layout:
+```text
+[ Mic-Logo  "Meeting Recorder" ] --- [ Nav-Items ... ThemeToggle ]
 ```
 
-### B. Tour-Steps korrigieren (`TourStep.tsx`)
+Neues Layout:
+```text
+[ ThemeToggle  "Meeting Recorder" ] --- [ Nav-Items ... Mic-Button ]
+```
 
-Die Steps muessen zur tatsaechlichen App-Struktur passen:
+- ThemeToggle ersetzt das Mic-Logo links neben dem Titel
+- Das Mikrofon-Icon wird ein interaktiver Button rechts in der Navigation
+- Waehrend einer laufenden Aufnahme zeigt der Button einen roten Puls-Indikator und ein Stop-Icon
 
-| Step | Aktuell (kaputt) | Neu (korrigiert) |
-|------|-----------------|------------------|
-| 0 | Welcome (center) | Welcome (center) -- bleibt |
-| 1 | Sucht `calendar-nav`, navigiert zu `/calendar` | Sucht `[data-tour="settings-nav"]`, navigiert zu `/settings` |
-| 2 | Sucht `calendar-connection` auf falscher Seite | Bleibt gleich, aber jetzt auf `/settings` korrekt |
-| 3 | Sucht `auto-record` auf falscher Seite | Bleibt gleich, aber jetzt auf `/settings` korrekt |
+### 2. Neuer Hook: `useQuickRecording` (`src/hooks/useQuickRecording.ts`)
 
-### C. `data-tour` Attribut zur Navigation hinzufuegen (`AppLayout.tsx`)
+Dieser Hook kapselt die gesamte Aufnahme-Logik:
 
-Das Einstellungen-Nav-Item bekommt `data-tour="settings-nav"`, damit Step 1 das Element finden und highlighten kann.
+- **startRecording()**: 
+  - Fordert gleichzeitig `getDisplayMedia` (Bildschirm + System-Audio) und `getUserMedia` (Mikrofon) an
+  - Kombiniert beide Audio-Streams in einen einzigen MediaStream via `AudioContext`
+  - Startet einen `MediaRecorder` und die Web Speech API fuer Live-Transkription
+  - Generiert automatisch einen Titel mit Datum/Uhrzeit (z.B. "Aufnahme 19.02.2026 14:30")
 
-### D. Tour-Provider und Hook anpassen
+- **stopRecording()**:
+  - Stoppt MediaRecorder und Speech Recognition
+  - Laedt die Audio-Datei zum `transcribe-audio` Edge Function hoch (gleicher Ablauf wie `AudioUploadCard`)
+  - Das Edge Function erstellt den `recordings`-Eintrag in der DB mit `source: 'manual'`, transkribiert via ElevenLabs und triggert die KI-Analyse
+  - Zeigt Toast-Benachrichtigungen fuer Start, Stopp und Ergebnis
 
-- `TourProvider.tsx`: Statt localStorage wird der DB-Status verwendet
-- `useOnboardingTour.ts`: Beim Mount den DB-Status abfragen; Tour nur starten wenn `tour_completed = false` und der User zum allerersten Mal eingeloggt ist
-- `skipTour` und `endTour` schreiben `tour_completed = true` in die Datenbank
-- localStorage als Fallback/Cache beibehalten, aber die Quelle der Wahrheit ist die DB
+- Stellt bereit: `isRecording`, `startRecording`, `stopRecording`, `error`
 
-### E. Navigation beim Step-Wechsel verbessern (`OnboardingTour.tsx`)
+### 3. Integration in AppLayout
 
-- Bei `handleNext`: Wenn der Step eine Navigation erfordert, zuerst navigieren und dann warten bis das Ziel-Element im DOM sichtbar ist (statt fester 300ms Timeout)
-- Retry-Logik fuer `calculatePositions`: Wenn das Target-Element nicht gefunden wird, mehrmals versuchen (bis zu 1s)
+- Der Mikrofon-Button in der Navigation nutzt `useQuickRecording`
+- Klick auf den Button: Wenn nicht aufnehmend -> `startRecording()`, wenn aufnehmend -> `stopRecording()`
+- Visuelles Feedback: Roter pulsierender Ring waehrend der Aufnahme, Tooltip "Schnellaufnahme starten" / "Aufnahme beenden"
+- Nach erfolgreicher Aufnahme wird der User via Toast informiert und kann die Aufnahme unter "Aufnahmen" finden
 
----
+### Keine Datenbank-Aenderungen noetig
 
-## Zusammenfassung der betroffenen Dateien
+Die Aufnahme wird ueber das bestehende `transcribe-audio` Edge Function verarbeitet, das bereits einen `recordings`-Eintrag mit `source: 'manual'` erstellt. Die gesamte Pipeline (Transkription, Backup, KI-Analyse, Export) laeuft automatisch.
+
+## Zusammenfassung der Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| Migration (SQL) | Neue Tabelle `onboarding_status` mit RLS |
-| `src/components/onboarding/TourStep.tsx` | Steps korrigieren: `/settings` statt `/calendar`, `settings-nav` statt `calendar-nav` |
-| `src/components/layout/AppLayout.tsx` | `data-tour="settings-nav"` an Einstellungen-Link |
-| `src/components/onboarding/TourProvider.tsx` | DB-basierter Status statt nur localStorage |
-| `src/hooks/useOnboardingTour.ts` | DB-Abfrage fuer Tour-Status |
-| `src/components/onboarding/OnboardingTour.tsx` | Robustere Navigation und Element-Suche mit Retry |
+| `src/components/layout/AppLayout.tsx` | ThemeToggle nach links, Mic-Button nach rechts mit Recording-Logik |
+| `src/hooks/useQuickRecording.ts` | Neuer Hook fuer Bildschirm+Mikrofon-Aufnahme mit DB-Speicherung |
 
