@@ -1,120 +1,59 @@
 
 
-# Fix: Infinite Recursion in project_recordings RLS
+# Fix: Windows-Kompatibilitaet fuer Teams-Links und Bot-Avatar-Upload
 
-## Ursache
+## Problem 1: Teams-Link kann auf Windows nicht eingefuegt werden
 
-Die INSERT-Policy auf `project_recordings` enthaelt eine Subquery auf die `recordings`-Tabelle:
+### Ursache
+Der `onPaste`-Handler in `QuickMeetingJoin.tsx` und `MeetingBot.tsx` ruft `e.preventDefault()` auf und liest dann `e.clipboardData.getData('text')`. Wenn Microsoft Teams auf Windows den Link nur im HTML-Format in die Zwischenablage legt (nicht als plain text), gibt `getData('text')` einen leeren String zurueck. Das Ergebnis: Das URL-Feld wird geleert statt befuellt.
 
-```text
-EXISTS (SELECT 1 FROM recordings WHERE recordings.id = ... AND recordings.user_id = auth.uid())
+### Loesung
+Den Paste-Handler in beiden Komponenten robuster machen:
+1. Zuerst `text/plain` versuchen
+2. Falls leer, `text/html` auslesen und daraus die URL extrahieren
+3. Falls beides leer ist, das Default-Verhalten des Browsers nicht blockieren (kein `preventDefault()`)
+
+Betroffene Dateien:
+- `src/components/calendar/QuickMeetingJoin.tsx` (Zeile 133-137)
+- `src/components/MeetingBot.tsx` (Zeile 89-93)
+
+### Code-Aenderung (beide Dateien gleich)
+
+```tsx
+onPaste={(e) => {
+  const plainText = e.clipboardData.getData('text/plain');
+  const htmlText = e.clipboardData.getData('text/html');
+
+  let url = plainText?.trim() || '';
+
+  // Fallback: URL aus HTML extrahieren (Windows Teams kopiert oft nur HTML)
+  if (!url && htmlText) {
+    const match = htmlText.match(/https?:\/\/[^\s"<>]+/);
+    if (match) url = match[0];
+  }
+
+  if (url) {
+    e.preventDefault();
+    setMeetingUrl(url);
+  }
+  // Kein preventDefault wenn nichts gefunden - Browser-Default greifen lassen
+}}
 ```
 
-Die `recordings`-Tabelle hat ihrerseits eine SELECT-Policy ("Project members can view project recordings"), die `project_recordings` abfragt. Damit entsteht ein Zirkelschluss:
+## Problem 2: Bot-Avatar-Upload auf Windows
 
-```text
-project_recordings INSERT
-  -> prueft recordings (RLS feuert)
-    -> recordings SELECT-Policy prueft project_recordings (RLS feuert)
-      -> project_recordings SELECT prueft projects (RLS feuert)
-        -> projects SELECT prueft project_members ... (aber ggf. erneut recordings)
-          -> Endlosschleife
+### Status
+Das `accept`-Attribut im File-Input (`Settings.tsx`, Zeile 601) enthaelt bereits sowohl MIME-Typen als auch Dateiendungen:
 ```
-
-## Loesung
-
-Zwei `SECURITY DEFINER`-Funktionen erstellen, die die Ownership-Pruefungen ohne RLS durchfuehren:
-
-### 1. Neue Datenbankfunktionen (Migration)
-
-```sql
--- Prueft ob ein User Owner eines Projekts ist
-CREATE OR REPLACE FUNCTION public.is_project_owner(_user_id uuid, _project_id uuid)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.projects
-    WHERE id = _project_id AND user_id = _user_id
-  )
-$$;
-
--- Prueft ob ein User Owner einer Aufnahme ist
-CREATE OR REPLACE FUNCTION public.is_recording_owner(_user_id uuid, _recording_id uuid)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.recordings
-    WHERE id = _recording_id AND user_id = _user_id
-  )
-$$;
-
--- Prueft ob ein User Mitglied eines Projekts ist
-CREATE OR REPLACE FUNCTION public.is_project_member(_user_id uuid, _project_id uuid)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.project_members
-    WHERE project_id = _project_id AND user_id = _user_id AND status = 'joined'
-  )
-$$;
+accept="image/jpeg,image/png,image/gif,image/webp,.jpg,.jpeg,.png,.gif,.webp"
 ```
+Das ist korrekt und sollte auf Windows funktionieren. Keine Aenderung noetig.
 
-### 2. project_recordings Policies ersetzen
+## Zusammenfassung
 
-Alle vier Policies auf `project_recordings` werden gedroppt und durch neue ersetzt, die die SECURITY DEFINER-Funktionen nutzen:
-
-- **SELECT (own):** `is_project_owner(auth.uid(), project_id)`
-- **SELECT (shared):** `is_project_member(auth.uid(), project_id)`
-- **INSERT:** `is_project_owner(auth.uid(), project_id) AND is_recording_owner(auth.uid(), recording_id)`
-- **DELETE:** `is_project_owner(auth.uid(), project_id)`
-
-### 3. recordings Policy ersetzen
-
-Die problematische SELECT-Policy "Project members can view project recordings" auf der `recordings`-Tabelle wird ebenfalls angepasst, um eine SECURITY DEFINER-Funktion zu nutzen statt direkt `project_recordings` abzufragen:
-
-```sql
--- Neue Funktion: Prueft ob eine Aufnahme einem Projekt zugeordnet ist, bei dem der User Mitglied ist
-CREATE OR REPLACE FUNCTION public.can_view_via_project(_user_id uuid, _recording_id uuid)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path = public
-AS $$
-  SELECT EXISTS (
-    SELECT 1
-    FROM public.project_recordings pr
-    JOIN public.project_members pm ON pm.project_id = pr.project_id
-    WHERE pr.recording_id = _recording_id
-      AND pm.user_id = _user_id
-      AND pm.status = 'joined'
-  )
-$$;
-```
-
-Die Policy wird dann zu:
-```sql
-CREATE POLICY "Project members can view project recordings"
-ON public.recordings FOR SELECT
-USING (deleted_at IS NULL AND public.can_view_via_project(auth.uid(), id));
-```
-
-### Zusammenfassung der Aenderungen
-
-- 4 neue SECURITY DEFINER-Funktionen erstellen
-- 4 Policies auf `project_recordings` droppen und neu erstellen
-- 1 Policy auf `recordings` droppen und neu erstellen
-- Keine Code-Aenderungen noetig, nur Datenbank-Migration
+| Datei | Aenderung |
+|-------|-----------|
+| `QuickMeetingJoin.tsx` | Paste-Handler: HTML-Fallback fuer Windows Teams |
+| `MeetingBot.tsx` | Paste-Handler: HTML-Fallback fuer Windows Teams |
+| `Settings.tsx` | Keine Aenderung noetig (accept-Attribut bereits korrekt) |
 
