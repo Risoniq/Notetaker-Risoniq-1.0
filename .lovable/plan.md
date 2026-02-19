@@ -1,48 +1,45 @@
 
-# Anpassung Quick-Recording: Ganzer Bildschirm und Aufnahme nur solange Mikrofon aktiv
+# Recall.ai Gallery View: Alle Teilnehmer gleichzeitig aufnehmen
 
-## Was sich aendert
+## Problem
+Aktuell nimmt der Recall.ai-Bot nur die jeweils sprechende Person auf (Standard-Layout "active speaker"). Bildschirmfreigaben werden zwar aufgenommen, aber immer nur ein Video-Feed gleichzeitig.
 
-### 1. Ganzer Bildschirm statt Fenster
-Aktuell wird `getDisplayMedia({ video: true, audio: true })` aufgerufen -- der Browser zeigt dabei einen Dialog, in dem der User zwischen "Ganzer Bildschirm", "Fenster" oder "Tab" waehlen kann. Es gibt keine Browser-API, die das auf "nur ganzer Bildschirm" erzwingen kann. Aber man kann mit `preferCurrentTab: false` und `displaySurface: 'monitor'` einen Hinweis geben, dass der ganze Bildschirm bevorzugt wird:
+## Loesung
+Recall.ai bietet das Layout `gallery_view_v2`, das alle Teilnehmer gleichzeitig in einer Galerie-Ansicht aufnimmt -- inklusive Bildschirmfreigaben. Dies wird ueber den Parameter `video_mixed_layout` in der `recording_config` konfiguriert.
+
+## Aenderung
+
+**Datei:** `supabase/functions/create-bot/index.ts`
+
+In der Bot-Konfiguration (Zeile 406-431) wird `recording_config` um das Gallery-Layout erweitert:
 
 ```ts
-navigator.mediaDevices.getDisplayMedia({
-  video: { displaySurface: 'monitor' },
-  audio: true,
-})
+recording_config: {
+  video_mixed_layout: "gallery_view_v2",  // NEU: Alle Teilnehmer gleichzeitig
+  video_mixed_mp4: {},                     // NEU: Sicherstellen dass Mixed-Video erzeugt wird
+  transcript: {
+    provider: {
+      recallai_streaming: {
+        mode: "prioritize_accuracy",
+        language_code: "auto"
+      }
+    }
+  },
+  meeting_metadata: {}
+}
 ```
 
-Dies sorgt dafuer, dass "Ganzer Bildschirm" im Browser-Dialog vorselektiert ist.
+### Was sich aendert
+- `video_mixed_layout: "gallery_view_v2"` -- zeigt alle Teilnehmer in einer Kachelansicht (wie die Galerieansicht in Zoom/Teams/Meet)
+- `video_mixed_mp4: {}` -- stellt sicher, dass das gemischte Video als MP4 verfuegbar ist
+- Bildschirmfreigaben werden automatisch mit eingeblendet, wenn ein Teilnehmer seinen Bildschirm teilt
 
-### 2. Aufnahme endet wenn Mikrofon-Button im Dashboard geklickt wird (nicht wenn Screen-Share endet)
-
-Aktuell stoppt die Aufnahme automatisch, wenn der User die Bildschirmfreigabe ueber den Browser beendet (Zeile 77-79). Das soll sich aendern:
-
-- Die Bildschirmaufnahme soll **weiterlaufen**, auch wenn der Browser-eigene "Freigabe beenden"-Button gedrueckt wird -- stattdessen wird nur der Mikrofon-Button im Header als Steuerung verwendet
-- Wenn der User die Bildschirmfreigabe ueber den Browser beendet, soll die Aufnahme trotzdem gestoppt werden (Sicherheitsnetz), aber die primaere Steuerung ist der Mikrofon-Button
-- Korrektur: Da der Browser die Bildschirmfreigabe bei "ended" tatsaechlich beendet und man sie nicht erzwingen kann, bleibt das `ended`-Event als Sicherheits-Fallback bestehen. Der Mikrofon-Button bleibt die Haupt-Steuerung.
+### Was gleich bleibt
+- Transkription, Speaker Timeline, Auto-Leave, Avatar, Quota-Check -- alles unveraendert
+- Die `sync-recording`-Logik muss nicht angepasst werden, da sie bereits `video_mixed` aus den `media_shortcuts` liest
 
 ## Betroffene Datei
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/hooks/useQuickRecording.ts` | `displaySurface: 'monitor'` fuer Vollbild-Praeferenz; `ended`-Listener bleibt als Fallback |
-
-## Technische Details
-
-In `useQuickRecording.ts`, Zeile 30:
-```ts
-// Vorher:
-navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-
-// Nachher:
-navigator.mediaDevices.getDisplayMedia({
-  video: { displaySurface: 'monitor' } as any,
-  audio: true,
-})
-```
-
-Das `as any` ist noetig, weil TypeScript die `displaySurface`-Option noch nicht in allen Type-Definitionen kennt, sie wird aber von Chrome und Edge unterstuetzt.
-
-Die restliche Logik (Mikrofon-Button startet/stoppt, Upload, Transkription) bleibt unveraendert, da sie bereits korrekt funktioniert. Der Mikrofon-Button im Header ist bereits die primaere Steuerung.
+| `supabase/functions/create-bot/index.ts` | `recording_config` um `video_mixed_layout` und `video_mixed_mp4` erweitern |
