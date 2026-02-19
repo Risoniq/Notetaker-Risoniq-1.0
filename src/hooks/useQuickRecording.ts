@@ -27,7 +27,7 @@ export function useQuickRecording() {
     try {
       // Request screen (with system audio) and microphone simultaneously
       const [displayStream, micStream] = await Promise.all([
-        navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }),
+        navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'monitor' } as any, audio: true }),
         navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         }),
