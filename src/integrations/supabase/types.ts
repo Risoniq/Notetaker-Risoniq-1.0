@@ -161,6 +161,27 @@ export type Database = {
         }
         Relationships: []
       }
+      onboarding_status: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          tour_completed: boolean
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          tour_completed?: boolean
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          tour_completed?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
       project_members: {
         Row: {
           created_at: string
