@@ -43,7 +43,10 @@ const Index = () => {
   }, [carouselApi]);
 
   const getItemStyle = (index: number) => {
-    const diff = index - activeIndex;
+    const totalItems = 3;
+    let diff = index - activeIndex;
+    if (diff > totalItems / 2) diff -= totalItems;
+    if (diff < -totalItems / 2) diff += totalItems;
     const base = { transition: 'all 0.5s ease', position: 'relative' as const };
     if (diff === 0) {
       return { ...base, transform: 'translateZ(60px) scale(1.05)', opacity: 1, zIndex: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', filter: 'none' };
