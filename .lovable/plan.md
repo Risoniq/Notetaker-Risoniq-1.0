@@ -1,50 +1,60 @@
 
+# Dashboard-Karussell fuer dynamische Inhalte
 
-# Karussell-Highlighting und Rotation ueberarbeiten
+## Ziel
+Die drei GlassCards im Dashboard (Bot senden, Audio hochladen, Account-Analyse) werden in ein horizontales Karussell umgewandelt. Auf Desktop werden weiterhin alle 3 Karten sichtbar sein, auf kleineren Bildschirmen kann der Nutzer durch die Karten wischen/navigieren. Das Karussell nutzt die bereits installierte `embla-carousel-react` Bibliothek und die vorhandene `carousel.tsx` UI-Komponente.
 
-## Problem
-Die `getItemStyle`-Funktion berechnet den Abstand (`diff`) zwischen Kartenindex und aktivem Index rein linear (`index - activeIndex`). Bei `loop: true` mit 3 Karten fuehrt das zu falschen Werten: Wenn die aktive Karte Index 2 hat, bekommt Karte 0 einen `diff` von -2 statt +1. Dadurch werden die Karten bei Rotation nicht korrekt als "links" oder "rechts" eingestuft und der 3D-Effekt bricht.
-
-## Loesung
+## Aenderungen
 
 ### Datei: `src/pages/Index.tsx`
 
-1. **Loop-faehige Diff-Berechnung**: Die `getItemStyle`-Funktion wird so angepasst, dass sie den kuerzesten Weg im Loop berechnet. Bei 3 Karten soll der `diff` immer im Bereich -1 bis +1 liegen:
+1. **Imports hinzufuegen**: `Carousel`, `CarouselContent`, `CarouselItem`, `CarouselPrevious`, `CarouselNext` aus `@/components/ui/carousel` importieren.
 
-```text
-const totalItems = 3;
-let diff = index - activeIndex;
-// Kuerzesten Weg im Loop finden
-if (diff > totalItems / 2) diff -= totalItems;
-if (diff < -totalItems / 2) diff += totalItems;
+2. **Grid durch Karussell ersetzen**: Der bisherige `grid grid-cols-1 lg:grid-cols-3` Block (Zeilen 86-119) wird durch eine Karussell-Struktur ersetzt:
+
 ```
-
-2. **Mittlere Karte bleibt highlighted**: Die Karte mit `diff === 0` bekommt weiterhin den Vordergrund-Stil (scale 1.05, translateZ 60px, Schatten, zIndex 10).
-
-3. **Linke und rechte Karte korrekt positioniert**: Durch die Loop-Korrektur wird die Karte links (diff -1) immer mit `rotateY(12deg)` und die Karte rechts (diff +1) mit `rotateY(-12deg)` dargestellt -- unabhaengig davon, welcher absolute Index gerade aktiv ist.
-
-4. **Ergebnis beim Pfeil-Klick**: Wenn man z.B. auf "Naechste" klickt, rotiert die mittlere Karte nach links/hinten, die rechte Karte kommt in die Mitte nach vorne, und die linke Karte rutscht nach rechts -- ein echter Karussell-Kreislauf.
-
-## Technische Details
-
-Einzige Aenderung in `getItemStyle`:
-
-```text
 Vorher:
-  const diff = index - activeIndex;
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+  <GlassCard>...</GlassCard>
+  <GlassCard>...</GlassCard>
+  <GlassCard>...</GlassCard>
+</div>
 
 Nachher:
-  const totalItems = 3;
-  let diff = index - activeIndex;
-  if (diff > totalItems / 2) diff -= totalItems;
-  if (diff < -totalItems / 2) diff += totalItems;
+<Carousel opts={{ align: "start", loop: true }} className="w-full">
+  <CarouselContent className="-ml-4">
+    <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3">
+      <GlassCard>Bot zu Meeting senden</GlassCard>
+    </CarouselItem>
+    <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3">
+      <GlassCard>Audio/Video hochladen</GlassCard>
+    </CarouselItem>
+    <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3">
+      <GlassCard>Account/Team-Analyse</GlassCard>
+    </CarouselItem>
+    <!-- Platz fuer weitere Karten in Zukunft -->
+  </CarouselContent>
+  <CarouselPrevious />
+  <CarouselNext />
+</Carousel>
 ```
 
-Der Rest der Funktion (Styles fuer aktive/inaktive Karten) bleibt identisch.
+3. **Responsive Verhalten**:
+   - Mobil (< 768px): 1 Karte sichtbar, wischbar
+   - Tablet (768px+): 2 Karten sichtbar
+   - Desktop (1024px+): 3 Karten sichtbar (alle auf einmal)
+   - `loop: true` ermoeglicht endloses Durchblaettern
+
+4. **Erweiterbarkeit**: Durch die Karussell-Struktur koennen spaeter einfach weitere `CarouselItem`-Karten hinzugefuegt werden (z.B. Kalender-Schnellzugriff, letzte Aufnahmen, Tipps), die dann per Wischen/Pfeile erreichbar sind.
 
 ## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/pages/Index.tsx` | Loop-faehige Diff-Berechnung in `getItemStyle` |
+| `src/pages/Index.tsx` | Grid durch Carousel-Komponente ersetzen, Imports ergaenzen |
 
+## Ergebnis
+- Dynamisches, wischbares Karussell im Dashboard
+- Auf Desktop bleiben alle 3 Karten sichtbar (kein Unterschied zum jetzigen Layout)
+- Auf Mobil/Tablet wird gewischt oder per Pfeiltasten navigiert
+- Einfach erweiterbar um zusaetzliche Dashboard-Karten

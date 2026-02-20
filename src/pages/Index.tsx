@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext, type CarouselApi } from "@/components/ui/carousel";
+import { Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext } from "@/components/ui/carousel";
 import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/glass-card";
@@ -31,30 +31,6 @@ const Index = () => {
   const { isTeamlead, teamName, leadTeams } = useTeamleadCheck();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [showExhaustedModal, setShowExhaustedModal] = useState(false);
-  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useEffect(() => {
-    if (!carouselApi) return;
-    setActiveIndex(carouselApi.selectedScrollSnap());
-    carouselApi.on("select", () => {
-      setActiveIndex(carouselApi.selectedScrollSnap());
-    });
-  }, [carouselApi]);
-
-  const getItemStyle = (index: number) => {
-    const totalItems = 3;
-    let diff = index - activeIndex;
-    if (diff > totalItems / 2) diff -= totalItems;
-    if (diff < -totalItems / 2) diff += totalItems;
-    const base = { transition: 'all 0.5s ease', position: 'relative' as const };
-    if (diff === 0) {
-      return { ...base, transform: 'translateZ(60px) scale(1.05)', opacity: 1, zIndex: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', filter: 'none' };
-    }
-    const tx = diff < 0 ? '-30px' : '30px';
-    const ry = diff < 0 ? '12deg' : '-12deg';
-    return { ...base, transform: `translateX(${tx}) translateZ(-80px) rotateY(${ry}) scale(0.85)`, opacity: 0.6, zIndex: 1, filter: 'brightness(0.9)' };
-  };
 
   // Auto-start onboarding tour for first-time users
   useAutoStartTour();
@@ -108,19 +84,19 @@ const Index = () => {
         {/* Bot-Steuerung und Account-Analyse - nur wenn Kontingent verfügbar */}
         {!quota?.is_exhausted && (
           <div className="space-y-5">
-          <Carousel opts={{ align: "center", loop: true }} setApi={setCarouselApi} className="w-full px-14">
-            <CarouselContent className="-ml-4" style={{ perspective: '1000px', transformStyle: 'preserve-3d' }}>
-              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3" style={getItemStyle(0)}>
+          <Carousel opts={{ align: "start", loop: true }} className="w-full">
+            <CarouselContent className="-ml-4">
+              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3">
                 <GlassCard title="Bot zu Meeting senden" className="h-full">
                   <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
                 </GlassCard>
               </CarouselItem>
-              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3" style={getItemStyle(1)}>
+              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3">
                 <GlassCard title="Audio/Video hochladen" className="h-full">
                   <AudioUploadCard />
                 </GlassCard>
               </CarouselItem>
-              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3" style={getItemStyle(2)}>
+              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3">
                 <GlassCard title={isTeamlead ? `Team-Analyse${leadTeams.length > 1 ? '' : ': ' + teamName}` : 'Account-Analyse'} className="h-full">
                   {isTeamlead ? (
                     <div className="space-y-2">
