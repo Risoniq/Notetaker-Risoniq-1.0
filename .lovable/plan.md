@@ -1,68 +1,50 @@
 
-# Karussell-Effekt verstaerken: Aktive Karte im Vordergrund
+
+# Karussell-Highlighting und Rotation ueberarbeiten
 
 ## Problem
-Aktuell stehen alle drei Karten visuell auf gleicher Ebene nebeneinander. Der 3D-Effekt (rotateY + scale) ist subtil und erzeugt kein echtes "Vordergrund/Hintergrund"-Gefuehl. Die aktive Karte hebt sich nicht deutlich genug ab.
+Die `getItemStyle`-Funktion berechnet den Abstand (`diff`) zwischen Kartenindex und aktivem Index rein linear (`index - activeIndex`). Bei `loop: true` mit 3 Karten fuehrt das zu falschen Werten: Wenn die aktive Karte Index 2 hat, bekommt Karte 0 einen `diff` von -2 statt +1. Dadurch werden die Karten bei Rotation nicht korrekt als "links" oder "rechts" eingestuft und der 3D-Effekt bricht.
 
 ## Loesung
 
 ### Datei: `src/pages/Index.tsx`
 
-Die `getItemStyle`-Funktion wird komplett ueberarbeitet, um einen staerkeren Tiefeneffekt zu erzeugen:
+1. **Loop-faehige Diff-Berechnung**: Die `getItemStyle`-Funktion wird so angepasst, dass sie den kuerzesten Weg im Loop berechnet. Bei 3 Karten soll der `diff` immer im Bereich -1 bis +1 liegen:
 
-**Aktive Karte (Vordergrund):**
-- `scale(1.05)` -- leicht vergroessert gegenueber den anderen
-- `translateZ(60px)` -- nach vorne gezogen
-- `rotateY(0deg)` -- gerade ausgerichtet
-- `opacity: 1`
-- `z-index: 10` -- ueber den anderen Karten
-- `box-shadow: 0 20px 60px rgba(0,0,0,0.15)` -- deutlicher Schattenwurf nach unten
-
-**Inaktive Karten (Hintergrund):**
-- `scale(0.85)` -- deutlich kleiner (statt 0.92)
-- `translateZ(-80px)` -- nach hinten geschoben
-- `translateX(±30px)` -- leicht zur Seite verschoben, damit sie "dahinter" hervorschauen
-- `rotateY(±12deg)` -- staerker gedreht (statt ±8deg)
-- `opacity: 0.6` -- staerker abgedunkelt
-- `z-index: 1` -- hinter der aktiven Karte
-
-**Carousel-Konfiguration:**
-- `align: "center"` statt `"start"` -- damit die aktive Karte zentriert steht
-- `perspective: 1000px` auf dem Container beibehalten
-- `transform-style: preserve-3d` auf den Items fuer echte 3D-Tiefe
-
-### Konkrete Code-Aenderungen
-
-1. **`getItemStyle` ueberarbeiten:**
-```
-Aktive Karte:
-  transform: translateZ(60px) scale(1.05)
-  opacity: 1
-  zIndex: 10
-  filter: none
-  boxShadow: 0 20px 60px rgba(0,0,0,0.15)
-
-Karte davor (links):
-  transform: translateX(-30px) translateZ(-80px) rotateY(12deg) scale(0.85)
-  opacity: 0.6
-  zIndex: 1
-  filter: brightness(0.9)
-
-Karte dahinter (rechts):
-  transform: translateX(30px) translateZ(-80px) rotateY(-12deg) scale(0.85)
-  opacity: 0.6
-  zIndex: 1
-  filter: brightness(0.9)
+```text
+const totalItems = 3;
+let diff = index - activeIndex;
+// Kuerzesten Weg im Loop finden
+if (diff > totalItems / 2) diff -= totalItems;
+if (diff < -totalItems / 2) diff += totalItems;
 ```
 
-2. **Carousel opts aendern:** `align: "center"` damit die fokussierte Karte mittig steht
+2. **Mittlere Karte bleibt highlighted**: Die Karte mit `diff === 0` bekommt weiterhin den Vordergrund-Stil (scale 1.05, translateZ 60px, Schatten, zIndex 10).
 
-3. **CarouselContent:** `transform-style: preserve-3d` hinzufuegen, damit translateZ tatsaechlich greift
+3. **Linke und rechte Karte korrekt positioniert**: Durch die Loop-Korrektur wird die Karte links (diff -1) immer mit `rotateY(12deg)` und die Karte rechts (diff +1) mit `rotateY(-12deg)` dargestellt -- unabhaengig davon, welcher absolute Index gerade aktiv ist.
 
-4. **CarouselItem:** `position: relative` und dynamischer `zIndex` damit die Ueberlappung korrekt dargestellt wird
+4. **Ergebnis beim Pfeil-Klick**: Wenn man z.B. auf "Naechste" klickt, rotiert die mittlere Karte nach links/hinten, die rechte Karte kommt in die Mitte nach vorne, und die linke Karte rutscht nach rechts -- ein echter Karussell-Kreislauf.
 
-## Ergebnis
-- Die aktive Karte steht klar im Vordergrund mit sichtbarem Schattenwurf
-- Inaktive Karten liegen sichtbar dahinter (kleiner, gedreht, abgedunkelt)
-- Beim Scrollen per Pfeiltasten rotieren die Karten flüssig in den Vordergrund
-- Echter 3D-Karussell-Effekt mit Tiefenwirkung
+## Technische Details
+
+Einzige Aenderung in `getItemStyle`:
+
+```text
+Vorher:
+  const diff = index - activeIndex;
+
+Nachher:
+  const totalItems = 3;
+  let diff = index - activeIndex;
+  if (diff > totalItems / 2) diff -= totalItems;
+  if (diff < -totalItems / 2) diff += totalItems;
+```
+
+Der Rest der Funktion (Styles fuer aktive/inaktive Karten) bleibt identisch.
+
+## Betroffene Dateien
+
+| Datei | Aenderung |
+|-------|-----------|
+| `src/pages/Index.tsx` | Loop-faehige Diff-Berechnung in `getItemStyle` |
+
