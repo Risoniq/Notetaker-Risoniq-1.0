@@ -1,47 +1,68 @@
 
-
-# Karussell 3D-Effekt und Pfeil-Abstand verbessern
+# Karussell-Effekt verstaerken: Aktive Karte im Vordergrund
 
 ## Problem
-1. Die Pfeile (`-left-12` / `-right-12`) sitzen zu nah am Rand und werden teilweise abgeschnitten
-2. Die Karten stehen flach nebeneinander -- kein "Karussell-Gefuehl"
+Aktuell stehen alle drei Karten visuell auf gleicher Ebene nebeneinander. Der 3D-Effekt (rotateY + scale) ist subtil und erzeugt kein echtes "Vordergrund/Hintergrund"-Gefuehl. Die aktive Karte hebt sich nicht deutlich genug ab.
 
 ## Loesung
 
-### 1. Mehr Platz fuer die Pfeile (Index.tsx)
-Das Karussell bekommt `px-14` Padding, damit die absolut positionierten Pfeile genug Platz haben und nicht am Rand kleben.
-
-### 2. 3D-Perspektive und Tiefeneffekt (Index.tsx)
-Eine eigene Karussell-Komponente mit CSS `perspective` und `transform: rotateY()` wird erstellt, die nicht-aktive Karten leicht nach hinten dreht und verkleinert. Dadurch entsteht ein dreidimensionaler Stapel-Effekt:
-
-- **Aktive Karte**: volle Groesse, `scale(1)`, `rotateY(0)`, volle Deckkraft
-- **Benachbarte Karten**: leicht gedreht (`rotateY(-8deg)` bzw. `rotateY(8deg)`), verkleinert (`scale(0.92)`), leicht transparent (`opacity: 0.7`)
-
-### Technischer Ansatz
-Da Embla Carousel die Slides flach als Flex-Items rendert, wird der 3D-Effekt ueber CSS `perspective` auf dem Container und dynamische `transform`-Styles auf den Items erreicht. Dafuer wird ein `setApi`-Callback genutzt, der bei `select`-Events den aktiven Index trackt und per State die Styles auf die Items anwendet.
-
-## Aenderungen
-
 ### Datei: `src/pages/Index.tsx`
 
-1. **Padding um Karussell**: `className="w-full px-14"` statt `className="w-full"` -- gibt den Pfeilen links/rechts je 56px Platz
+Die `getItemStyle`-Funktion wird komplett ueberarbeitet, um einen staerkeren Tiefeneffekt zu erzeugen:
 
-2. **3D-Karussell-Wrapper**: Ein neuer State `activeIndex` wird per `setApi` + `select`-Event getrackt. Die `CarouselContent` bekommt `style={{ perspective: '1200px' }}`. Jedes `CarouselItem` bekommt dynamische Inline-Styles basierend auf seiner Position relativ zum aktiven Index:
+**Aktive Karte (Vordergrund):**
+- `scale(1.05)` -- leicht vergroessert gegenueber den anderen
+- `translateZ(60px)` -- nach vorne gezogen
+- `rotateY(0deg)` -- gerade ausgerichtet
+- `opacity: 1`
+- `z-index: 10` -- ueber den anderen Karten
+- `box-shadow: 0 20px 60px rgba(0,0,0,0.15)` -- deutlicher Schattenwurf nach unten
 
-```text
-Karte links:   transform: rotateY(8deg) scale(0.92)   opacity: 0.7
-Karte mitte:   transform: rotateY(0) scale(1)          opacity: 1
-Karte rechts:  transform: rotateY(-8deg) scale(0.92)   opacity: 0.7
+**Inaktive Karten (Hintergrund):**
+- `scale(0.85)` -- deutlich kleiner (statt 0.92)
+- `translateZ(-80px)` -- nach hinten geschoben
+- `translateX(±30px)` -- leicht zur Seite verschoben, damit sie "dahinter" hervorschauen
+- `rotateY(±12deg)` -- staerker gedreht (statt ±8deg)
+- `opacity: 0.6` -- staerker abgedunkelt
+- `z-index: 1` -- hinter der aktiven Karte
+
+**Carousel-Konfiguration:**
+- `align: "center"` statt `"start"` -- damit die aktive Karte zentriert steht
+- `perspective: 1000px` auf dem Container beibehalten
+- `transform-style: preserve-3d` auf den Items fuer echte 3D-Tiefe
+
+### Konkrete Code-Aenderungen
+
+1. **`getItemStyle` ueberarbeiten:**
+```
+Aktive Karte:
+  transform: translateZ(60px) scale(1.05)
+  opacity: 1
+  zIndex: 10
+  filter: none
+  boxShadow: 0 20px 60px rgba(0,0,0,0.15)
+
+Karte davor (links):
+  transform: translateX(-30px) translateZ(-80px) rotateY(12deg) scale(0.85)
+  opacity: 0.6
+  zIndex: 1
+  filter: brightness(0.9)
+
+Karte dahinter (rechts):
+  transform: translateX(30px) translateZ(-80px) rotateY(-12deg) scale(0.85)
+  opacity: 0.6
+  zIndex: 1
+  filter: brightness(0.9)
 ```
 
-3. **Transitions**: `transition: all 0.5s ease` auf den Items fuer fluessige Uebergaenge beim Scrollen.
+2. **Carousel opts aendern:** `align: "center"` damit die fokussierte Karte mittig steht
 
-### Datei: `src/components/ui/carousel.tsx`
+3. **CarouselContent:** `transform-style: preserve-3d` hinzufuegen, damit translateZ tatsaechlich greift
 
-Keine Aenderungen noetig -- die 3D-Logik wird komplett in Index.tsx ueber Inline-Styles und State gehandhabt.
+4. **CarouselItem:** `position: relative` und dynamischer `zIndex` damit die Ueberlappung korrekt dargestellt wird
 
 ## Ergebnis
-- Pfeile haben deutlich mehr Abstand zum Seitenrand
-- Karten wirken gestapelt/dreidimensional mit Tiefeneffekt
-- Beim Scrollen drehen sich die Karten fluessig in die Mitte
-- Der Karussell-Charakter wird visuell viel staerker spuerbar
+- Die aktive Karte steht klar im Vordergrund mit sichtbarem Schattenwurf
+- Inaktive Karten liegen sichtbar dahinter (kleiner, gedreht, abgedunkelt)
+- Beim Scrollen per Pfeiltasten rotieren die Karten flüssig in den Vordergrund
+- Echter 3D-Karussell-Effekt mit Tiefenwirkung
