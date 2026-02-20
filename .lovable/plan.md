@@ -1,101 +1,78 @@
 
-
-# Video-Backup in Supabase Storage (transcript-backups Bucket)
+# Echtzeit-Sync nach Meeting-Ende via Recall.ai Webhook
 
 ## Problem
-Aktuell speichert `sync-recording` nur die Video-URL von Recall.ai in der Datenbank (`video_url`). Diese URLs sind temporaer und laufen nach einiger Zeit ab. Das Video selbst wird nicht dauerhaft gesichert.
+Aktuell erkennt das System ein beendetes Meeting nur ueber den Cron-Job `auto-sync-recordings`, der alle 5 Minuten laeuft. Das bedeutet bis zu 5 Minuten Verzoegerung, bis Analyse und Video-Backup starten. Es gibt keinen Echtzeit-Trigger von Recall.ai.
 
 ## Loesung
-Nach dem gleichen Muster wie das Transkript-Backup (Zeilen 839-873 in `sync-recording`) wird das Video von der Recall.ai-URL heruntergeladen und im bestehenden `transcript-backups` Bucket gespeichert. Die permanente Storage-URL ersetzt dann die temporaere Recall.ai-URL in der Datenbank.
+Recall.ai unterstuetzt den Parameter `status_change_url` in der Bot-Konfiguration. Wenn sich der Bot-Status aendert (z.B. `done`, `call_ended`), sendet Recall.ai automatisch einen POST-Request an diese URL. Wir erstellen eine neue Edge Function, die diesen Webhook empfaengt und sofort `sync-recording` triggert.
 
-## Aenderung
+## Aenderungen
 
-**Datei:** `supabase/functions/sync-recording/index.ts`
+### 1. Neue Edge Function: `recall-status-webhook` (neues File)
+**Datei:** `supabase/functions/recall-status-webhook/index.ts`
 
-Nach dem Transkript-Backup-Block (Zeile 873) wird ein neuer Block eingefuegt, der das Video herunterlaed und in Storage speichert:
+Diese Funktion empfaengt Status-Updates von Recall.ai und triggert den Sync-Prozess:
+
+- Empfaengt POST von Recall.ai mit Bot-Status-Daten (`bot_id`, `status.code`, `status.sub_code`)
+- Sucht die zugehoerige Recording in der Datenbank anhand der `recall_bot_id`
+- Bei relevanten Status-Codes (`done`, `call_ended`, `recording_done`, `analysis_done`, `fatal`) wird sofort `sync-recording` aufgerufen
+- Ignoriert Zwischen-Status wie `joining_call`, `in_call_recording` (diese brauchen keinen Sync)
+- Verwendet den Service-Role-Key fuer den internen `sync-recording`-Aufruf
+- Kein JWT noetig (Recall.ai sendet keine Auth-Header), aber Bot-ID wird gegen die DB validiert
+
+### 2. Bot-Config erweitern: `status_change_url`
+**Datei:** `supabase/functions/create-bot/index.ts`
+
+In der Bot-Konfiguration (Zeile 406-433) wird `status_change_url` hinzugefuegt:
 
 ```text
-Ablauf:
-1. Pruefe ob eine Video-URL von Recall.ai vorhanden ist (updates.video_url)
-2. Lade das Video herunter (fetch)
-3. Speichere es als {userId}/{recordingId}_{timestamp}.mp4 im transcript-backups Bucket
-4. Ersetze updates.video_url mit der permanenten Storage-URL
+botConfig.status_change_url = `${supabaseUrl}/functions/v1/recall-status-webhook`
 ```
 
-### Groessenbeschraenkung
-- Videos werden nur gespeichert wenn sie kleiner als 500 MB sind (gleiche Grenze wie bei transcribe-video)
-- Bei groesseren Dateien bleibt die temporaere Recall.ai-URL bestehen und ein Warn-Log wird geschrieben
+Dies teilt Recall.ai mit, wohin Status-Updates gesendet werden sollen. Ab sofort wird bei jedem Bot-Status-Wechsel sofort ein Webhook gesendet.
 
-### Storage-Pfad
-Videos werden unter dem gleichen User-Ordner wie Transkripte gespeichert:
+### 3. Config.toml erweitern
+**Datei:** `supabase/config.toml`
+
+Neuer Eintrag fuer die Webhook-Funktion:
+```toml
+[functions.recall-status-webhook]
+verify_jwt = false
 ```
-transcript-backups/{user_id}/{recording_id}_{timestamp}.mp4
+
+## Ablauf nach der Aenderung
+
+```text
+Meeting endet
+    |
+    v
+Recall.ai erkennt: alle Teilnehmer weg (everyone_left_timeout: 60s)
+    |
+    v
+Recall.ai sendet POST an recall-status-webhook (status: "done")
+    |
+    v
+recall-status-webhook findet Recording via recall_bot_id
+    |
+    v
+Ruft sync-recording auf (mit Service-Role-Key)
+    |
+    v
+sync-recording laedt Transkript + Video, speichert Backup, startet Analyse
 ```
 
-### Bestehende RLS-Policies
-Der `transcript-backups` Bucket ist bereits private und hat RLS-Policies, die nur authentifizierten Eigentuemern und Admins Zugriff erlauben. Da der Upload ueber den Service-Role-Key erfolgt, sind keine Policy-Aenderungen noetig.
+Der bestehende Cron-Job (`auto-sync-recordings`) bleibt als Fallback bestehen, falls ein Webhook verloren geht.
 
-## Betroffene Datei
+## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `supabase/functions/sync-recording/index.ts` | Neuer Block nach Transkript-Backup: Video herunterladen und in Storage speichern |
+| `supabase/functions/recall-status-webhook/index.ts` | Neue Edge Function: empfaengt Recall.ai Status-Webhooks |
+| `supabase/functions/create-bot/index.ts` | `status_change_url` zur Bot-Config hinzufuegen |
+| `supabase/config.toml` | Neuer Eintrag fuer `recall-status-webhook` |
 
-## Technische Details
-
-Der neue Code-Block wird zwischen dem Transkript-Backup (Zeile 873) und dem DB-Update (Zeile 877) eingefuegt:
-
-```ts
-// 7c. Video als Backup in Storage speichern
-if (updates.video_url && typeof updates.video_url === 'string') {
-  try {
-    console.log('Lade Video von Recall.ai herunter fuer Backup...')
-    const videoResponse = await fetch(updates.video_url)
-    
-    if (videoResponse.ok) {
-      const contentLength = parseInt(videoResponse.headers.get('content-length') || '0')
-      const maxSize = 500 * 1024 * 1024 // 500 MB
-      
-      if (contentLength > 0 && contentLength > maxSize) {
-        console.warn(`Video zu gross fuer Backup: ${Math.round(contentLength / 1024 / 1024)}MB > 500MB`)
-      } else {
-        const videoBuffer = await videoResponse.arrayBuffer()
-        const videoUint8Array = new Uint8Array(videoBuffer)
-        
-        // Groesse nochmal pruefen nach Download
-        if (videoUint8Array.length <= maxSize) {
-          const userId = recording.user_id || user.id
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-          const videoFileName = `${userId}/${id}_video_${timestamp}.mp4`
-          
-          const { data: videoUploadData, error: videoUploadError } = await supabase.storage
-            .from('transcript-backups')
-            .upload(videoFileName, videoUint8Array, {
-              contentType: 'video/mp4',
-              upsert: true
-            })
-          
-          if (videoUploadError) {
-            console.error('Video-Backup Upload Fehler:', videoUploadError)
-          } else {
-            console.log('Video-Backup gespeichert:', videoUploadData?.path)
-            // Permanente Storage-URL in video_url speichern
-            const supabaseUrl = Deno.env.get('SUPABASE_URL') || ''
-            updates.video_url = `${supabaseUrl}/storage/v1/object/authenticated/transcript-backups/${videoFileName}`
-            console.log('Video-URL aktualisiert auf Storage-URL')
-          }
-        } else {
-          console.warn(`Video nach Download zu gross: ${Math.round(videoUint8Array.length / 1024 / 1024)}MB`)
-        }
-      }
-    } else {
-      console.error('Video-Download fehlgeschlagen:', videoResponse.status)
-    }
-  } catch (videoBackupError) {
-    console.error('Video-Backup fehlgeschlagen:', videoBackupError)
-  }
-}
-```
-
-Die Video-URL in der Datenbank zeigt danach auf die permanente Storage-URL statt auf die temporaere Recall.ai-URL. Der Zugriff erfolgt ueber authentifizierte Requests (gleich wie bei Transkript-Backups).
-
+## Sicherheit
+- Die Webhook-Funktion validiert, dass eine Recording mit der empfangenen `bot_id` existiert (verhindert gefaelschte Anfragen)
+- Der interne `sync-recording`-Aufruf verwendet den Service-Role-Key
+- Kein sensibles Secret wird nach aussen exponiert
