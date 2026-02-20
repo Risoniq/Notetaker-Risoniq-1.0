@@ -44,11 +44,13 @@ const Index = () => {
 
   const getItemStyle = (index: number) => {
     const diff = index - activeIndex;
+    const base = { transition: 'all 0.5s ease', position: 'relative' as const };
     if (diff === 0) {
-      return { transform: 'rotateY(0deg) scale(1)', opacity: 1, transition: 'all 0.5s ease' };
+      return { ...base, transform: 'translateZ(60px) scale(1.05)', opacity: 1, zIndex: 10, boxShadow: '0 20px 60px rgba(0,0,0,0.15)', filter: 'none' };
     }
-    const rotation = diff < 0 ? '8deg' : '-8deg';
-    return { transform: `rotateY(${rotation}) scale(0.92)`, opacity: 0.7, transition: 'all 0.5s ease' };
+    const tx = diff < 0 ? '-30px' : '30px';
+    const ry = diff < 0 ? '12deg' : '-12deg';
+    return { ...base, transform: `translateX(${tx}) translateZ(-80px) rotateY(${ry}) scale(0.85)`, opacity: 0.6, zIndex: 1, filter: 'brightness(0.9)' };
   };
 
   // Auto-start onboarding tour for first-time users
@@ -103,8 +105,8 @@ const Index = () => {
         {/* Bot-Steuerung und Account-Analyse - nur wenn Kontingent verfügbar */}
         {!quota?.is_exhausted && (
           <div className="space-y-5">
-          <Carousel opts={{ align: "start", loop: true }} setApi={setCarouselApi} className="w-full px-14">
-            <CarouselContent className="-ml-4" style={{ perspective: '1200px' }}>
+          <Carousel opts={{ align: "center", loop: true }} setApi={setCarouselApi} className="w-full px-14">
+            <CarouselContent className="-ml-4" style={{ perspective: '1000px', transformStyle: 'preserve-3d' }}>
               <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/3" style={getItemStyle(0)}>
                 <GlassCard title="Bot zu Meeting senden" className="h-full">
                   <QuickMeetingJoin onBotStarted={setActiveRecordingId} />
