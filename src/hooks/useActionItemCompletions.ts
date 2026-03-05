@@ -6,11 +6,13 @@ interface Completion {
   recording_id: string;
   item_index: number;
   completed_at: string;
+  completed_by_email: string | null;
 }
 
 export function useActionItemCompletions(recordingIds: string[]) {
   const { session } = useAuth();
   const userId = session?.user?.id;
+  const userEmail = session?.user?.email ?? null;
   const [completions, setCompletions] = useState<Completion[]>([]);
 
   useEffect(() => {
@@ -19,7 +21,7 @@ export function useActionItemCompletions(recordingIds: string[]) {
     const load = async () => {
       const { data } = await supabase
         .from('action_item_completions' as any)
-        .select('recording_id, item_index, completed_at')
+        .select('recording_id, item_index, completed_at, completed_by_email')
         .eq('user_id', userId)
         .in('recording_id', recordingIds);
       if (data) setCompletions(data as unknown as Completion[]);
@@ -37,6 +39,14 @@ export function useActionItemCompletions(recordingIds: string[]) {
     (recordingId: string, itemIndex: number): Date | null => {
       const c = completions.find(c => c.recording_id === recordingId && c.item_index === itemIndex);
       return c ? new Date(c.completed_at) : null;
+    },
+    [completions]
+  );
+
+  const completedByEmail = useCallback(
+    (recordingId: string, itemIndex: number): string | null => {
+      const c = completions.find(c => c.recording_id === recordingId && c.item_index === itemIndex);
+      return c?.completed_by_email ?? null;
     },
     [completions]
   );
@@ -62,13 +72,13 @@ export function useActionItemCompletions(recordingIds: string[]) {
       } else {
         // Add
         const now = new Date().toISOString();
-        setCompletions(prev => [...prev, { recording_id: recordingId, item_index: itemIndex, completed_at: now }]);
+        setCompletions(prev => [...prev, { recording_id: recordingId, item_index: itemIndex, completed_at: now, completed_by_email: userEmail }]);
         await supabase
           .from('action_item_completions' as any)
-          .insert({ user_id: userId, recording_id: recordingId, item_index: itemIndex } as any);
+          .insert({ user_id: userId, recording_id: recordingId, item_index: itemIndex, completed_by_email: userEmail } as any);
       }
     },
-    [userId, completions]
+    [userId, userEmail, completions]
   );
 
   const completedCount = useCallback(
@@ -79,5 +89,5 @@ export function useActionItemCompletions(recordingIds: string[]) {
     [completions]
   );
 
-  return { isCompleted, completedAt, toggleCompletion, completedCount };
+  return { isCompleted, completedAt, completedByEmail, toggleCompletion, completedCount };
 }
