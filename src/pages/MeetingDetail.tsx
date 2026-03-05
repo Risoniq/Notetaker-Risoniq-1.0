@@ -1092,7 +1092,7 @@ export default function MeetingDetail() {
                             <span className={`text-foreground ${done ? 'line-through opacity-60' : ''}`}>{item}</span>
                             {doneAt && (
                               <span className="block text-xs text-muted-foreground mt-0.5">
-                                erledigt am {doneAt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}
+                                erledigt von {actionCompletions.completedByEmail(recording.id, index) ?? '–'} am {doneAt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })}
                               </span>
                             )}
                           </div>
