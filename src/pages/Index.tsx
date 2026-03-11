@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { RecordingViewer } from "@/components/RecordingViewer";
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
@@ -19,31 +19,24 @@ import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/glass-card";
 import { QuotaProgressBar } from "@/components/quota/QuotaProgressBar";
-import { QuotaExhaustedModal } from "@/components/quota/QuotaExhaustedModal";
+
 import { useUserQuota } from "@/hooks/useUserQuota";
 import { useTeamleadCheck } from "@/hooks/useTeamleadCheck";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAutoStartTour } from "@/hooks/useOnboardingTour";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 
 const Index = () => {
   const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null);
   const { quota, loading: quotaLoading } = useUserQuota();
   const { isTeamlead, teamName, leadTeams } = useTeamleadCheck();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [showExhaustedModal, setShowExhaustedModal] = useState(false);
-
   // Auto-start onboarding tour for first-time users
   useAutoStartTour();
 
-  // Modal anzeigen wenn Kontingent erschöpft
-  useEffect(() => {
-    if (quota?.is_exhausted) {
-      setShowExhaustedModal(true);
-    }
-  }, [quota]);
-
   return (
     <AppLayout>
+      <OnboardingTour />
       <div className="space-y-6">
         {/* Quota Progress Bar - ganz oben */}
         {quota && !quotaLoading && (
@@ -70,7 +63,6 @@ const Index = () => {
           </div>
         </div>
 
-        {/* Quota Exhausted Warning Banner */}
         {quota?.is_exhausted && (
           <Alert className="border-destructive bg-destructive/10">
             <AlertTriangle className="h-4 w-4 text-destructive" />
@@ -142,11 +134,6 @@ const Index = () => {
           </GlassCard>
         )}
 
-        {/* Modal für erschöpftes Kontingent */}
-        <QuotaExhaustedModal 
-          open={showExhaustedModal} 
-          onClose={() => setShowExhaustedModal(false)} 
-        />
       </div>
       <Toaster />
     </AppLayout>
