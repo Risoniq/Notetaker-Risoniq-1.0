@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye, Plus, UsersRound, Key, ShieldCheck, KeyRound, Lock, MailCheck } from 'lucide-react';
+import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye, EyeOff, Plus, UsersRound, Key, ShieldCheck, KeyRound, Lock, MailCheck } from 'lucide-react';
 import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 import { SecurityDashboard } from '@/components/admin/SecurityDashboard';
 import { useImpersonation } from '@/contexts/ImpersonationContext';
@@ -136,6 +136,7 @@ const Admin = () => {
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordUser, setPasswordUser] = useState<UserData | null>(null);
   const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleViewAsUser = (user: UserData) => {
     startImpersonating(user.id, user.email);
@@ -1374,7 +1375,7 @@ const Admin = () => {
         />
 
         {/* Set Password Dialog */}
-        <Dialog open={passwordDialogOpen} onOpenChange={(open) => { setPasswordDialogOpen(open); if (!open) { setNewPassword(''); setPasswordUser(null); } }}>
+        <Dialog open={passwordDialogOpen} onOpenChange={(open) => { setPasswordDialogOpen(open); if (!open) { setNewPassword(''); setPasswordUser(null); setShowPassword(false); } }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Passwort setzen</DialogTitle>
@@ -1385,13 +1386,22 @@ const Admin = () => {
             <div className="space-y-4 py-4">
               <div className="space-y-2">
                 <Label htmlFor="new-password">Neues Passwort</Label>
-                <Input
-                  id="new-password"
-                  type="password"
-                  placeholder="Mindestens 8 Zeichen"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                />
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Mindestens 8 Zeichen"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </div>
             </div>
             <DialogFooter>
