@@ -31,17 +31,8 @@ const Index = () => {
   const { quota, loading: quotaLoading } = useUserQuota();
   const { isTeamlead, teamName, leadTeams } = useTeamleadCheck();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-  const [showExhaustedModal, setShowExhaustedModal] = useState(false);
-
   // Auto-start onboarding tour for first-time users
   useAutoStartTour();
-
-  // Modal anzeigen wenn Kontingent erschöpft
-  useEffect(() => {
-    if (quota?.is_exhausted) {
-      setShowExhaustedModal(true);
-    }
-  }, [quota]);
 
   return (
     <AppLayout>
