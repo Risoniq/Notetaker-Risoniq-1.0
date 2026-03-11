@@ -36,6 +36,7 @@ const Index = () => {
 
   return (
     <AppLayout>
+      <OnboardingTour />
       <div className="space-y-6">
         {/* Quota Progress Bar - ganz oben */}
         {quota && !quotaLoading && (
