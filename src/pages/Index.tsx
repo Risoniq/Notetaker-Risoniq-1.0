@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { RecordingViewer } from "@/components/RecordingViewer";
 import { QuickMeetingJoin } from "@/components/calendar/QuickMeetingJoin";
