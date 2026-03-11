@@ -289,6 +289,64 @@ const Admin = () => {
     }
   };
 
+  const handleSetPassword = async () => {
+    if (!passwordUser || !newPassword) return;
+    if (newPassword.length < 8) {
+      toast({ title: 'Fehler', description: 'Passwort muss mindestens 8 Zeichen lang sein', variant: 'destructive' });
+      return;
+    }
+    setActionLoading(passwordUser.id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-set-password', {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: { user_id: passwordUser.id, new_password: newPassword },
+        })
+      );
+
+      if (response.error || !response.data?.success) {
+        throw new Error(response.data?.error || response.error?.message || 'Fehler');
+      }
+
+      toast({ title: 'Passwort gesetzt', description: `Neues Passwort für ${passwordUser.email} wurde gesetzt.` });
+      setPasswordDialogOpen(false);
+      setNewPassword('');
+      setPasswordUser(null);
+    } catch (err: any) {
+      toast({ title: 'Fehler', description: err.message || 'Passwort konnte nicht gesetzt werden', variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleConfirmEmail = async (userId: string, email: string) => {
+    setActionLoading(userId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-confirm-email', {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: { user_id: userId },
+        })
+      );
+
+      if (response.error || !response.data?.success) {
+        throw new Error(response.data?.error || response.error?.message || 'Fehler');
+      }
+
+      toast({ title: 'E-Mail bestätigt', description: `E-Mail für ${email} wurde manuell bestätigt.` });
+    } catch (err: any) {
+      toast({ title: 'Fehler', description: err.message || 'E-Mail-Bestätigung fehlgeschlagen', variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const openQuotaEdit = (user: UserData) => {
     setEditingUser(user);
     setQuotaHours(user.max_minutes / 60);
