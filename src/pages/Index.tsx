@@ -24,6 +24,7 @@ import { useUserQuota } from "@/hooks/useUserQuota";
 import { useTeamleadCheck } from "@/hooks/useTeamleadCheck";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAutoStartTour } from "@/hooks/useOnboardingTour";
+import { OnboardingTour } from "@/components/onboarding/OnboardingTour";
 
 const Index = () => {
   const [activeRecordingId, setActiveRecordingId] = useState<string | null>(null);
