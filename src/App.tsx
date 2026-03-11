@@ -11,6 +11,7 @@ import { QuickRecordingProvider } from "@/contexts/QuickRecordingContext";
 import { RecordingBanner } from "@/components/recording/RecordingBanner";
 import { ScreenBorderOverlay } from "@/components/recording/ScreenBorderOverlay";
 import { WebcamPreview } from "@/components/recording/WebcamPreview";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
