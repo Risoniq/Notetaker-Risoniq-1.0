@@ -57,7 +57,8 @@ export function OnboardingTour() {
 
     const target = await waitForElement(currentStepConfig.targetSelector);
     if (!target) {
-      setSpotlight(null);
+      // Target not found — skip tour to prevent black overlay
+      skipTour();
       return;
     }
 
