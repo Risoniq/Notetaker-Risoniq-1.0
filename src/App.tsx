@@ -28,6 +28,7 @@ import ResetPassword from "./pages/ResetPassword";
 const queryClient = new QueryClient();
 
 const App = () => (
+  <ErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <TourProvider>
@@ -64,6 +65,7 @@ const App = () => (
       </TourProvider>
     </ThemeProvider>
   </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;
