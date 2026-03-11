@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye, Plus, UsersRound, Key, ShieldCheck, KeyRound } from 'lucide-react';
+import { ArrowLeft, Users, FileText, Clock, Activity, Calendar, CheckCircle, XCircle, Trash2, Shield, Settings, Eye, Plus, UsersRound, Key, ShieldCheck, KeyRound, Lock, MailCheck } from 'lucide-react';
 import { withTokenRefresh } from '@/lib/retryWithTokenRefresh';
 import { SecurityDashboard } from '@/components/admin/SecurityDashboard';
 import { useImpersonation } from '@/contexts/ImpersonationContext';
@@ -131,6 +131,11 @@ const Admin = () => {
   const [createApiKeyDialogOpen, setCreateApiKeyDialogOpen] = useState(false);
   const [webhookDialogOpen, setWebhookDialogOpen] = useState(false);
   const [selectedApiKey, setSelectedApiKey] = useState<ApiKeyData | null>(null);
+
+  // Set Password Dialog
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
+  const [passwordUser, setPasswordUser] = useState<UserData | null>(null);
+  const [newPassword, setNewPassword] = useState('');
 
   const handleViewAsUser = (user: UserData) => {
     startImpersonating(user.id, user.email);
@@ -279,6 +284,64 @@ const Admin = () => {
         description: err.message || 'Passwort-Reset fehlgeschlagen',
         variant: 'destructive',
       });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSetPassword = async () => {
+    if (!passwordUser || !newPassword) return;
+    if (newPassword.length < 8) {
+      toast({ title: 'Fehler', description: 'Passwort muss mindestens 8 Zeichen lang sein', variant: 'destructive' });
+      return;
+    }
+    setActionLoading(passwordUser.id);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-set-password', {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: { user_id: passwordUser.id, new_password: newPassword },
+        })
+      );
+
+      if (response.error || !response.data?.success) {
+        throw new Error(response.data?.error || response.error?.message || 'Fehler');
+      }
+
+      toast({ title: 'Passwort gesetzt', description: `Neues Passwort für ${passwordUser.email} wurde gesetzt.` });
+      setPasswordDialogOpen(false);
+      setNewPassword('');
+      setPasswordUser(null);
+    } catch (err: any) {
+      toast({ title: 'Fehler', description: err.message || 'Passwort konnte nicht gesetzt werden', variant: 'destructive' });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleConfirmEmail = async (userId: string, email: string) => {
+    setActionLoading(userId);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) return;
+
+      const response = await withTokenRefresh(
+        () => supabase.functions.invoke('admin-confirm-email', {
+          headers: { Authorization: `Bearer ${sessionData.session.access_token}` },
+          body: { user_id: userId },
+        })
+      );
+
+      if (response.error || !response.data?.success) {
+        throw new Error(response.data?.error || response.error?.message || 'Fehler');
+      }
+
+      toast({ title: 'E-Mail bestätigt', description: `E-Mail für ${email} wurde manuell bestätigt.` });
+    } catch (err: any) {
+      toast({ title: 'Fehler', description: err.message || 'E-Mail-Bestätigung fehlgeschlagen', variant: 'destructive' });
     } finally {
       setActionLoading(null);
     }
@@ -1046,6 +1109,24 @@ const Admin = () => {
                                     >
                                       <KeyRound className="h-4 w-4" />
                                     </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      title="Passwort direkt setzen"
+                                      disabled={actionLoading === user.id}
+                                      onClick={() => { setPasswordUser(user); setNewPassword(''); setPasswordDialogOpen(true); }}
+                                    >
+                                      <Lock className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      title="E-Mail bestätigen"
+                                      disabled={actionLoading === user.id}
+                                      onClick={() => handleConfirmEmail(user.id, user.email)}
+                                    >
+                                      <MailCheck className="h-4 w-4" />
+                                    </Button>
                                   </>
                                 )}
                               </div>
@@ -1291,6 +1372,36 @@ const Admin = () => {
           onSave={handleWebhookAction}
           isSaving={!!actionLoading}
         />
+
+        {/* Set Password Dialog */}
+        <Dialog open={passwordDialogOpen} onOpenChange={(open) => { setPasswordDialogOpen(open); if (!open) { setNewPassword(''); setPasswordUser(null); } }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Passwort setzen</DialogTitle>
+              <DialogDescription>
+                Neues Passwort für <strong>{passwordUser?.email}</strong> festlegen. Die E-Mail wird gleichzeitig bestätigt.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="new-password">Neues Passwort</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  placeholder="Mindestens 8 Zeichen"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPasswordDialogOpen(false)}>Abbrechen</Button>
+              <Button onClick={handleSetPassword} disabled={!newPassword || newPassword.length < 8 || actionLoading === passwordUser?.id}>
+                Passwort setzen
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );
