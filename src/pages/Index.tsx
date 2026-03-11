@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { GlassCard } from "@/components/ui/glass-card";
 import { QuotaProgressBar } from "@/components/quota/QuotaProgressBar";
-import { QuotaExhaustedModal } from "@/components/quota/QuotaExhaustedModal";
+
 import { useUserQuota } from "@/hooks/useUserQuota";
 import { useTeamleadCheck } from "@/hooks/useTeamleadCheck";
 import { Alert, AlertDescription } from "@/components/ui/alert";
