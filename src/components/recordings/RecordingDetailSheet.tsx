@@ -108,14 +108,7 @@ export const RecordingDetailSheet = ({
                   <Video className="h-4 w-4" />
                   Video-Aufnahme
                 </h3>
-                <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                  <video 
-                    src={recording.video_url} 
-                    controls 
-                    className="w-full h-full"
-                    preload="metadata"
-                  />
-                </div>
+                <VideoPlayer videoUrl={recording.video_url} />
               </section>
             )}
 
