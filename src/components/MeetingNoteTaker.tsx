@@ -390,6 +390,13 @@ export default function MeetingNoteTaker() {
       console.error('Fehler beim Speichern:', err);
       setError('Meeting konnte nicht gespeichert werden.');
     }
+    } catch (outerErr: any) {
+      console.error('[MeetingNoteTaker] stopRecording crashed:', outerErr);
+      setIsRecording(false);
+      setCurrentStream(null);
+      isStoppingRef.current = false;
+      toast({ title: 'Fehler', description: outerErr?.message || 'Aufnahme konnte nicht gestoppt werden.', variant: 'destructive' });
+    }
   }, [isRecording, recordingStartTime, meetingTitle, currentTranscript, captureMode, saveMeeting, stopRecognition, toast, user, selectedMeeting, loadMeetings]);
 
   const handleCloseDownloadModal = () => {
