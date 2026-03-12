@@ -153,7 +153,7 @@ export function OnboardingTour() {
   return (
     <div className="fixed inset-0 z-[9990]">
       {/* Backdrop with spotlight cutout */}
-      <div className="absolute inset-0 pointer-events-auto">
+      <div className="absolute inset-0 pointer-events-auto" onClick={skipTour}>
         <svg className="absolute inset-0 w-full h-full">
           <defs>
             <mask id="spotlight-mask">
