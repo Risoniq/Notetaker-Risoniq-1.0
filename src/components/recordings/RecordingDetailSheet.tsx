@@ -25,6 +25,7 @@ import {
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { useActionItemCompletions } from "@/hooks/useActionItemCompletions";
+import { VideoPlayer, useResolvedVideoUrl } from "./VideoPlayer";
 
 interface RecordingDetailSheetProps {
   recording: Recording | null;
@@ -39,6 +40,7 @@ export const RecordingDetailSheet = ({
 }: RecordingDetailSheetProps) => {
   const recordingIds = useMemo(() => recording ? [recording.id] : [], [recording?.id]);
   const actionCompletions = useActionItemCompletions(recordingIds);
+  const resolvedVideoUrl = useResolvedVideoUrl(recording?.video_url ?? null);
 
   if (!recording) return null;
 
@@ -106,14 +108,7 @@ export const RecordingDetailSheet = ({
                   <Video className="h-4 w-4" />
                   Video-Aufnahme
                 </h3>
-                <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                  <video 
-                    src={recording.video_url} 
-                    controls 
-                    className="w-full h-full"
-                    preload="metadata"
-                  />
-                </div>
+                <VideoPlayer videoUrl={recording.video_url} />
               </section>
             )}
 
@@ -204,9 +199,9 @@ export const RecordingDetailSheet = ({
 
             {/* Download Actions */}
             <section className="flex flex-wrap gap-3">
-              {recording.video_url && (
+              {resolvedVideoUrl && (
                 <Button variant="outline" asChild>
-                  <a href={recording.video_url} target="_blank" rel="noopener noreferrer">
+                  <a href={resolvedVideoUrl} target="_blank" rel="noopener noreferrer">
                     <Download className="h-4 w-4 mr-2" />
                     Video herunterladen
                     <ExternalLink className="h-3 w-3 ml-1.5 opacity-50" />
