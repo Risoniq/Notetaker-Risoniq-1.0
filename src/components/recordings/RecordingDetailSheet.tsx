@@ -40,6 +40,7 @@ export const RecordingDetailSheet = ({
 }: RecordingDetailSheetProps) => {
   const recordingIds = useMemo(() => recording ? [recording.id] : [], [recording?.id]);
   const actionCompletions = useActionItemCompletions(recordingIds);
+  const resolvedVideoUrl = useResolvedVideoUrl(recording?.video_url ?? null);
 
   if (!recording) return null;
 
