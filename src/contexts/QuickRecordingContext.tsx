@@ -52,6 +52,8 @@ export function QuickRecordingProvider({ children }: Props) {
   const [error, setError] = useState('');
   const [includeWebcam, setIncludeWebcam] = useState(false);
   const [webcamStream, setWebcamStream] = useState<MediaStream | null>(null);
+  const [pendingUploads, setPendingUploads] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
