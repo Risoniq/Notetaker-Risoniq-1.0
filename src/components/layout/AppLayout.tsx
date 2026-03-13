@@ -1,6 +1,6 @@
 import { ReactNode, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { LayoutDashboard, Settings, Shield, Mic, Video, FolderKanban, Square } from "lucide-react";
+import { LayoutDashboard, Settings, Shield, Mic, Video, FolderKanban, Square, CloudUpload, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminCheck } from "@/hooks/useAdminCheck";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
