@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useRef, useCallback, useEffect, ReactNode } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { saveBlob, deleteBlob } from '@/hooks/useIndexedDBBackup';
+import { saveBlob, deleteBlob, getPendingIds, getBlob } from '@/hooks/useIndexedDBBackup';
 
 const MAX_CHUNK_BYTES = 750 * 1024 * 1024;
 const MAX_DURATION_SECONDS = 7200; // 2 hours
